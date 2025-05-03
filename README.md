@@ -1,15 +1,5 @@
 # ai-research-agent
 
-To install dependencies:
+Made using Claude and Gemini
 
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.0.35. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
+- Note, it took several iterations and manual searching due to bugs outputted by both LLMs (Claude 3.7 Sonnet, Gemini 2.5 Flash., Gemini 2.5 Pro)
