@@ -53,4 +53,8 @@
 
 ---
 
+## Screenshot
+
+![Screenshot](screenshot.png)
+
 _Note: Made using Claude, Gemini - It took several iterations and manual searching due to bugs outputted by both LLMs (Claude 3.7 Sonnet, Gemini 2.5 Flash, Gemini 2.5 Pro)_

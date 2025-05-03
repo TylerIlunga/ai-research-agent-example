@@ -1,10 +1,10 @@
 import {
   MemorySaver,
   StateGraph,
-  Annotation,
   MessagesAnnotation,
   START,
   END,
+  CheckpointMetadata,
 } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import { TavilySearch } from "@langchain/tavily";
@@ -15,17 +15,16 @@ import {
   HumanMessage,
   AIMessage,
   SystemMessage,
-  BaseMessage,
   ToolMessage,
 } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { StringOutputParser } from "@langchain/core/output_parsers";
-
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 // Initialize Pinecone client
-const pinecone = new Pinecone();
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY || "",
+});
 const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX || "");
 
 // Initialize embeddings for vector storage
@@ -49,23 +48,6 @@ export const createResearchAgent = async () => {
   });
 
   const vectorStore = await initVectorStore();
-
-  // const getWeather = tool(
-  //   (input) => {
-  //     if (["sf", "san francisco"].includes(input.location.toLowerCase())) {
-  //       return "It's 60 degrees and foggy.";
-  //     } else {
-  //       return "It's 90 degrees and sunny.";
-  //     }
-  //   },
-  //   {
-  //     name: "get_weather",
-  //     description: "Call to get the current weather.",
-  //     schema: z.object({
-  //       location: z.string().describe("Location to get the weather for."),
-  //     }),
-  //   }
-  // );
 
   // Custom tool for saving information to memory
   const saveToMemoryTool = tool(
@@ -118,28 +100,13 @@ export const createResearchAgent = async () => {
 
   // Set up the model with tools
   const model = new ChatOpenAI({
-    // modelName: "gpt-4o-mini",
-    model: "gpt-4o",
+    model: "gpt-4.1",
     temperature: 0,
   }).bindTools([searchTool, saveToMemoryTool, retrieveFromMemoryTool]);
 
   // Create tool node for executing tool calls
   const tools = [searchTool, saveToMemoryTool, retrieveFromMemoryTool];
   const toolNode = new ToolNode(tools);
-
-  // Define the agent state using Annotation.Root
-  const AgentState = Annotation.Root({
-    messages: Annotation<BaseMessage[]>({
-      reducer: (left: BaseMessage[], right: BaseMessage | BaseMessage[]) => {
-        if (Array.isArray(right)) {
-          return left.concat(right);
-        }
-        return left.concat([right]);
-      },
-      default: () => [],
-    }),
-    conversationId: Annotation<string>(),
-  });
 
   const callModel = async (state: typeof MessagesAnnotation.State) => {
     const { messages } = state;
@@ -152,8 +119,6 @@ export const createResearchAgent = async () => {
     const { messages } = state;
     const lastMessage = messages[messages.length - 1];
 
-    console.log("shouldContinue:", messages);
-
     if (
       "tool_calls" in lastMessage &&
       Array.isArray(lastMessage.tool_calls) &&
@@ -164,10 +129,6 @@ export const createResearchAgent = async () => {
     return END;
   };
 
-  // Add edges to the graph
-  // Example Graph:
-  // START => "model" => shouldContinue("tools" || "end")
-  // "tool" => "model" (above) [loop between "model" and "tools"]
   // Create the graph for the agent
   const workflow = new StateGraph(MessagesAnnotation)
     .addNode("model", callModel) // Add nodes to the graph
@@ -191,7 +152,7 @@ export const createResearchAgent = async () => {
     conversationId: string;
   }) => {
     // Retrieve previous messages if any
-    let existingState;
+    let existingState: any;
     try {
       // checkpointer.get expects a config object with a configurable key
       existingState = await checkpointer.get({
@@ -207,8 +168,10 @@ export const createResearchAgent = async () => {
       messages: [
         new SystemMessage(
           `You are a helpful research assistant that can search the web for information and provide detailed, accurate answers.
-          You have access to tools that allow you to search the web and access your memory.
-          Always cite your sources at the end of your response.`
+  You have access to tools that allow you to search the web and access your memory (retrieve_from_memory).
+  Always use the search_tool when you need to find current information.
+  Always use the save_to_memory tool to save important findings.
+  Always cite your sources at the end of your response.`
         ),
         new HumanMessage(input),
       ],
@@ -222,20 +185,26 @@ export const createResearchAgent = async () => {
       configurable: { thread_id: conversationId },
     });
 
+    const step = existingState
+      ? (existingState._metadata?.step ?? 0) + 1 // Increment existing step if available
+      : -1; // First input checkpoint should be -1 per documentation
+
     // Save the state
-    // checkpointer.put expects a config object with a configurable key and the state
-    // await checkpointer.put(
-    //   { configurable: { thread_id: conversationId } },
-    //   result
-    // );
+    await checkpointer.put(
+      { configurable: { thread_id: conversationId } },
+      result,
+      {
+        source: existingState ? "update" : "input",
+        step: step,
+        writes: null,
+        parents: {},
+      } as CheckpointMetadata
+    );
 
     // Extract the final AI message
     const finalMessage = result.messages[
       result.messages.length - 1
     ] as AIMessage;
-
-    console.log("result.messages (all generated messages):", result.messages); // Corrected typo messaegs -> messages
-    console.log("finalMessage:", finalMessage);
 
     // Extract sources from the messages if available
     const sources = result.messages
@@ -258,8 +227,6 @@ export const createResearchAgent = async () => {
           return [];
         }
       });
-
-    console.log("sources:", sources);
 
     return {
       output: finalMessage.content,
@@ -298,8 +265,10 @@ export const createResearchAgent = async () => {
       messages: [
         new SystemMessage(
           `You are a helpful research assistant that can search the web for information and provide detailed, accurate answers.
-          You have access to tools that allow you to search the web and access your memory.
-          Always cite your sources at the end of your response.`
+  You have access to tools that allow you to search the web and access your memory (retrieve_from_memory).
+  Always use the search_tool when you need to find current information.
+  Always use the save_to_memory tool to save important findings.
+  Always cite your sources at the end of your response.`
         ),
         new HumanMessage(input),
       ],
