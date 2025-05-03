@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build directories
+/dist/
+/build/
+/out/
+/.next/
+/frontend/.next/
+/backend/dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# API keys and secrets
+*.pem
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Testing
+/coverage/
+
+# OS specific files
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Optional
+.vercel
+.turbo
+
+# Vector DB
+*.vec
+*.idx
+
+# LangSmith
+.langsmith/
+
+# Cache directories
+.cache/
+.temp/
+
+# Logs
+logs/
+*.log
+
+# Package managers
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Only include if you want to use yarn or npm to manage workspaces
+# Include these if you want to commit the lock files
+# !yarn.lock
+# !package-lock.json
