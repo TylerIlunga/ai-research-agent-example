@@ -1,5 +1,7 @@
 # Quick AI Research Agent Example
 
+_Note: This is a simple example not made for Production. The agents we use within our service were built after multiple iterations with Production in mind._
+
 ## Tech Stack
 
 ### Frontend
