@@ -23,6 +23,7 @@ A modern AI research agent built with LangGraph and React that provides intellig
 - **React Markdown** for content rendering
 
 **Key Components:**
+
 - `Chat.tsx` - Main chat interface with streaming support
 - `ResearchProgress.tsx` - Real-time research pipeline visualization
 - `Message.tsx` - Message rendering with markdown support
@@ -36,6 +37,7 @@ A modern AI research agent built with LangGraph and React that provides intellig
 - **Structured project organization** with separated concerns
 
 **Architecture:**
+
 - `agents/researchAgent.ts` - Core LangGraph research agent
 - `tools/research.ts` - Research tool implementations
 - `prompts/research.ts` - Structured prompt templates
@@ -65,7 +67,7 @@ A modern AI research agent built with LangGraph and React that provides intellig
 ## Demo
 
 <video width="600" height="400" autoplay muted loop>
-  <source src="demo.mov">
+  <source src="demo.mp4">
   Your browser does not support the video tag.
 </video>
 
