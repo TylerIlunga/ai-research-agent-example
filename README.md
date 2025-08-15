@@ -66,9 +66,6 @@ A modern AI research agent built with LangGraph and React that provides intellig
 
 ## Demo
 
-<video width="600" height="400" autoplay muted loop>
-  <source src="demo.mp4">
-  Your browser does not support the video tag.
-</video>
+https://github.com/user-attachments/assets/7b5ec23f-ea49-4b44-8238-ac237547edff
 
 _Note: Made using Claude, Gemini - It took several iterations and manual searching due to bugs outputted by both LLMs (Claude 4 Sonnet, Gemini 2.5 Pro)_
