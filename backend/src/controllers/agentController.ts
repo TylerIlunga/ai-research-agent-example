@@ -1,6 +1,141 @@
 import type { Request, Response } from "express";
 import { createResearchAgent } from "../agents/researchAgent";
 
+// Helper function to clean complex event data
+const cleanEventData = (chunk: {
+  event: string;
+  data?: any;
+  name?: string;
+  metadata?: any;
+}) => {
+  const { event, data, name, metadata } = chunk;
+
+  // Extract only essential information based on event type
+  switch (event) {
+    case "on_chat_model_stream":
+      return {
+        event,
+        data: {
+          chunk: {
+            content: data?.chunk?.content || "",
+            tool_calls: data?.chunk?.tool_calls || [],
+          },
+        },
+        name: name || "model",
+        metadata: {
+          langgraph_node: metadata?.langgraph_node,
+          langgraph_step: metadata?.langgraph_step,
+        },
+      };
+
+    case "on_chat_model_start":
+    case "on_chat_model_end":
+      return {
+        event,
+        data: {
+          output: data?.output
+            ? {
+                content:
+                  typeof data.output === "string"
+                    ? data.output
+                    : data.output?.content || "",
+                final_answer: data.output?.final_answer,
+              }
+            : undefined,
+        },
+        name: name || "model",
+        metadata: {
+          langgraph_node: metadata?.langgraph_node,
+          langgraph_step: metadata?.langgraph_step,
+        },
+      };
+
+    case "on_tool_start":
+    case "on_tool_end":
+      return {
+        event,
+        data: {
+          input: data?.input
+            ? {
+                query: data.input?.query || data.input,
+              }
+            : undefined,
+          output: data?.output || undefined,
+          name: data?.name,
+        },
+        name: name || "tool",
+        metadata: {
+          langgraph_node: metadata?.langgraph_node,
+          langgraph_step: metadata?.langgraph_step,
+        },
+      };
+
+    case "on_chain_start":
+    case "on_chain_end":
+      return {
+        event,
+        data: {
+          input: data?.input
+            ? {
+                type: "simplified",
+                message_count: data.input?.messages?.length || 0,
+              }
+            : undefined,
+          output: data?.output || undefined,
+        },
+        name: name || "chain",
+        metadata: {
+          langgraph_node: metadata?.langgraph_node,
+          langgraph_step: metadata?.langgraph_step,
+        },
+      };
+
+    default:
+      // For unknown events, return minimal data
+      return {
+        event,
+        data: data ? { simplified: true } : undefined,
+        name: name || "unknown",
+        metadata: {
+          langgraph_node: metadata?.langgraph_node,
+          langgraph_step: metadata?.langgraph_step,
+        },
+      };
+  }
+};
+
+// Helper function to determine if an event should be sent to the client
+const shouldSendEvent = (chunk: {
+  event: string;
+  data?: any;
+  metadata?: any;
+}): boolean => {
+  const { event, data, metadata } = chunk;
+
+  // Always send model streaming events with content
+  if (event === "on_chat_model_stream" && data?.chunk?.content) {
+    return true;
+  }
+
+  // Send tool events for progress tracking
+  if (event.includes("tool") && metadata?.langgraph_node) {
+    return true;
+  }
+
+  // Send chain events for workflow tracking
+  if (event.includes("chain") && metadata?.langgraph_node) {
+    return true;
+  }
+
+  // Send final model responses
+  if (event === "on_chat_model_end" && data?.output?.content) {
+    return true;
+  }
+
+  // Skip other noisy events
+  return false;
+};
+
 // Process a query and return the full response
 export const processQuery = async (req: Request, res: Response) => {
   try {
@@ -33,7 +168,10 @@ export const processQuery = async (req: Request, res: Response) => {
 // Stream the response back to the client
 export const streamResponse = async (req: Request, res: Response) => {
   try {
-    const { query, conversationId }: any = req.query;
+    const { query, conversationId } = req.query as {
+      query?: string;
+      conversationId?: string;
+    };
 
     if (!query) {
       res.status(400).json({ error: "Query is required" });
@@ -53,11 +191,16 @@ export const streamResponse = async (req: Request, res: Response) => {
       conversationId: conversationId || "default",
     });
 
-    // Process the stream and send data to client
+    // Process the stream and send cleaned data to client
     for await (const chunk of stream) {
-      // Send each chunk as an SSE event
-      console.log("chunk:", chunk);
-      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      // Filter and clean the chunk to remove complex nested objects
+      const cleanedChunk = cleanEventData(chunk);
+
+      // Only send relevant events to reduce noise
+      if (shouldSendEvent(cleanedChunk)) {
+        console.log("Sending cleaned chunk:", cleanedChunk);
+        res.write(`data: ${JSON.stringify(cleanedChunk)}\n\n`);
+      }
     }
 
     // End the response
