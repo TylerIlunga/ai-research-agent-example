@@ -4,7 +4,7 @@ A research agent that plans, searches, and writes a cited brief — built with L
 
 ## Demo
 
-**v2 — the current interface**, one unedited run on Claude Sonnet 5: the plan, the live trace, sources landing one at a time, the streamed brief with clickable citations, the failover panel, and dark mode.
+**v2 — the current interface**, one unedited run on Claude Opus 5: the plan, the live trace, sources landing one at a time, the streamed brief with clickable citations, the failover panel, and dark mode.
 
 
 
