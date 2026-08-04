@@ -1,0 +1,23 @@
+{
+  "files": [
+    {
+      "path": "./dist/assets/index-*.js",
+      "maxSize": "300KB",
+      "compression": "gzip"
+    },
+    {
+      "path": "./dist/assets/index-*.css",
+      "maxSize": "50KB",
+      "compression": "gzip"
+    },
+    {
+      "path": "./dist/assets/vendor-*.js",
+      "maxSize": "500KB",
+      "compression": "gzip"
+    }
+  ],
+  "ci": {
+    "trackBranches": ["main", "develop"],
+    "repoBranchBase": "main"
+  }
+}

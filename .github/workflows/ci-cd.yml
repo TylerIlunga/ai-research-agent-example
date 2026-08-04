@@ -1,0 +1,796 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Code Quality and Security Scanning
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      # Backend Quality Checks
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Backend linting
+        working-directory: ./backend
+        run: npm run lint
+
+      - name: Backend type checking
+        working-directory: ./backend
+        run: npm run type-check
+
+      - name: Backend security audit
+        working-directory: ./backend
+        run: npm audit --audit-level=high
+
+      # Frontend Quality Checks
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Frontend linting
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Frontend type checking
+        working-directory: ./frontend
+        run: npm run type-check
+
+      - name: Frontend security audit
+        working-directory: ./frontend
+        run: npm audit --audit-level=high
+
+      # Security Scanning
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # Code Quality Analysis
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Unit Testing
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./${{ matrix.component }}
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: ./${{ matrix.component }}
+        run: npm run test:unit -- --coverage --ci --watchAll=false
+        env:
+          CI: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./${{ matrix.component }}/coverage/lcov.info
+          flags: ${{ matrix.component }}
+          name: codecov-${{ matrix.component }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Coverage threshold check
+        working-directory: ./${{ matrix.component }}
+        run: |
+          COVERAGE=$(npm run test:coverage:json | tail -1 | jq '.total.statements.pct')
+          echo "Coverage: $COVERAGE%"
+          if [ $(echo "$COVERAGE < 85" | bc) -eq 1 ]; then
+            echo "Coverage $COVERAGE% is below threshold of 85%"
+            exit 1
+          fi
+
+  # Integration Testing
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: ai_research_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run database migrations
+        working-directory: ./backend
+        run: npm run migrate:test
+        env:
+          DATABASE_URL: postgres://postgres:test_password@localhost:5432/ai_research_test
+          REDIS_URL: redis://localhost:6379
+
+      - name: Seed test data
+        working-directory: ./backend
+        run: npm run seed:test
+        env:
+          DATABASE_URL: postgres://postgres:test_password@localhost:5432/ai_research_test
+
+      - name: Run integration tests
+        working-directory: ./backend
+        run: npm run test:integration -- --ci --verbose
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgres://postgres:test_password@localhost:5432/ai_research_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret
+          OPENAI_API_KEY: test_openai_key
+          TAVILY_API_KEY: test_tavily_key
+          PINECONE_API_KEY: test_pinecone_key
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: backend/test-results/
+
+  # Performance Benchmarking
+  performance-tests:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Build application
+        working-directory: ./backend
+        run: npm run build
+
+      - name: Start application for benchmarking
+        working-directory: ./backend
+        run: |
+          npm start &
+          sleep 30  # Wait for startup
+        env:
+          NODE_ENV: production
+          PORT: 3001
+
+      - name: Run performance benchmarks
+        working-directory: ./testing
+        run: |
+          npm ci
+          npm run benchmark:ci
+        env:
+          API_BASE_URL: http://localhost:3001
+          LOAD_TEST_PREVIEW: true
+
+      - name: Analyze performance results
+        run: |
+          node .github/scripts/analyze-performance.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: testing/results/
+
+      - name: Performance regression check
+        run: |
+          node .github/scripts/performance-regression.js
+        env:
+          BASELINE_BRANCH: main
+
+  # Frontend E2E Tests
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Start backend server
+        working-directory: ./backend
+        run: |
+          npm run build
+          npm start &
+          sleep 20
+        env:
+          NODE_ENV: test
+          PORT: 3001
+
+      - name: Start frontend server
+        working-directory: ./frontend
+        run: |
+          npm run preview &
+          sleep 10
+        env:
+          VITE_API_URL: http://localhost:3001
+
+      - name: Install Playwright
+        working-directory: ./frontend
+        run: npx playwright install --with-deps
+
+      - name: Run E2E tests
+        working-directory: ./frontend
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+
+  # Build and Package
+  build:
+    name: Build & Package
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests]
+    outputs:
+      backend-image: ${{ steps.backend-meta.outputs.tags }}
+      frontend-image: ${{ steps.frontend-meta.outputs.tags }}
+      backend-digest: ${{ steps.backend-build.outputs.digest }}
+      frontend-digest: ${{ steps.frontend-build.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Backend Build
+      - name: Extract backend metadata
+        id: backend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push backend image
+        id: backend-build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.backend-meta.outputs.tags }}
+          labels: ${{ steps.backend-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Frontend Build
+      - name: Extract frontend metadata
+        id: frontend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push frontend image
+        id: frontend-build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL }}
+            VITE_WS_URL=${{ vars.VITE_WS_URL }}
+
+  # Comprehensive Security and Code Quality Scanning
+  security-scan:
+    name: Security & Quality Scan
+    runs-on: ubuntu-latest
+    needs: [build]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # Install dependencies for security scanning
+      - name: Install dependencies (Backend)
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install dependencies (Frontend)
+        working-directory: ./frontend
+        run: npm ci
+
+      # Security vulnerability scanning
+      - name: Run npm audit (Backend)
+        working-directory: ./backend
+        run: |
+          npm audit --audit-level moderate --production
+          npm audit fix --dry-run --json > ../security-audit-backend.json || true
+
+      - name: Run npm audit (Frontend)  
+        working-directory: ./frontend
+        run: |
+          npm audit --audit-level moderate --production
+          npm audit fix --dry-run --json > ../security-audit-frontend.json || true
+
+      # Container security scanning with Trivy
+      - name: Run Trivy vulnerability scanner (Backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build.outputs.backend-image }}
+          format: 'sarif'
+          output: 'trivy-backend-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (Frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build.outputs.frontend-image }}
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+
+      # Upload security scan results
+      - name: Upload Backend Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-backend-results.sarif'
+
+      - name: Upload Frontend Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-frontend-results.sarif'
+
+      # Secret scanning with TruffleHog
+      - name: TruffleHog OSS Secret Scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      # Dependency license check
+      - name: License compliance check (Backend)
+        working-directory: ./backend
+        run: |
+          npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense' --json > ../license-check-backend.json || true
+
+      - name: License compliance check (Frontend)
+        working-directory: ./frontend
+        run: |
+          npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense' --json > ../license-check-frontend.json || true
+
+      # Code quality analysis with SonarCloud
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Code complexity analysis
+      - name: Complexity analysis (Backend)
+        working-directory: ./backend
+        run: |
+          npx complexity-report --format json --output ../complexity-backend.json src/ || true
+
+      - name: Complexity analysis (Frontend)
+        working-directory: ./frontend
+        run: |
+          npx complexity-report --format json --output ../complexity-frontend.json src/ || true
+
+      # Dead code detection
+      - name: Dead code detection (Backend)
+        working-directory: ./backend
+        run: |
+          npx ts-unused-exports tsconfig.json > ../unused-exports-backend.txt || true
+
+      - name: Dead code detection (Frontend)
+        working-directory: ./frontend
+        run: |
+          npx ts-unused-exports tsconfig.json > ../unused-exports-frontend.txt || true
+
+      # Code duplication check
+      - name: Code duplication check
+        run: |
+          npx jscpd --format json --output ./duplication-report.json ./backend/src ./frontend/src || true
+
+      # Bundle size analysis
+      - name: Bundle size analysis (Frontend)
+        working-directory: ./frontend
+        run: |
+          npm run build
+          npx bundlesize || true
+
+      # Performance audit with Lighthouse
+      - name: Lighthouse CI Performance Audit
+        working-directory: ./frontend
+        run: |
+          npm install -g @lhci/cli
+          lhci autorun || true
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      # Generate comprehensive security and quality report
+      - name: Generate security and quality summary
+        run: |
+          echo "# Security & Code Quality Report" > security-quality-summary.md
+          echo "" >> security-quality-summary.md
+          echo "## 🔒 Security Scanning" >> security-quality-summary.md
+          echo "- ✅ NPM Audit completed" >> security-quality-summary.md
+          echo "- ✅ Trivy container scan completed" >> security-quality-summary.md
+          echo "- ✅ Secret scanning completed" >> security-quality-summary.md
+          echo "- ✅ License compliance checked" >> security-quality-summary.md
+          echo "" >> security-quality-summary.md
+          echo "## 📊 Code Quality" >> security-quality-summary.md
+          echo "- ✅ SonarCloud analysis completed" >> security-quality-summary.md
+          echo "- ✅ Complexity analysis completed" >> security-quality-summary.md
+          echo "- ✅ Dead code detection completed" >> security-quality-summary.md
+          echo "- ✅ Code duplication check completed" >> security-quality-summary.md
+          echo "" >> security-quality-summary.md
+          echo "## 🚀 Performance" >> security-quality-summary.md
+          echo "- ✅ Bundle size analysis completed" >> security-quality-summary.md
+          echo "- ✅ Lighthouse audit completed" >> security-quality-summary.md
+          echo "" >> security-quality-summary.md
+          echo "Generated on: $(date)" >> security-quality-summary.md
+
+      # Upload all security and quality artifacts
+      - name: Upload security and quality artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-quality-results
+          path: |
+            security-*.json
+            license-check-*.json
+            trivy-*.sarif
+            complexity-*.json
+            unused-exports-*.txt
+            duplication-report.json
+            security-quality-summary.md
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build, integration-tests, e2e-tests]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'staging')
+    environment:
+      name: staging
+      url: https://staging.ai-research-agent.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy to staging
+        run: |
+          # Update image tags in deployment manifests
+          sed -i "s|BACKEND_IMAGE_TAG|${{ needs.build.outputs.backend-image }}|g" k8s/staging/backend-deployment.yaml
+          sed -i "s|FRONTEND_IMAGE_TAG|${{ needs.build.outputs.frontend-image }}|g" k8s/staging/frontend-deployment.yaml
+          
+          # Apply manifests
+          kubectl apply -f k8s/staging/
+          
+          # Wait for rollout
+          kubectl rollout status deployment/ai-research-backend -n staging --timeout=600s
+          kubectl rollout status deployment/ai-research-frontend -n staging --timeout=600s
+
+      - name: Run smoke tests
+        run: |
+          npm ci
+          npm run test:smoke
+        working-directory: ./testing
+        env:
+          SMOKE_TEST_URL: https://staging.ai-research-agent.com
+          API_KEY: ${{ secrets.STAGING_API_KEY }}
+
+      - name: Notify deployment success
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: 'Staging deployment successful! 🚀'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build, performance-tests, security-scan]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production')
+    environment:
+      name: production
+      url: https://ai-research-agent.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+
+      # Blue-Green Deployment
+      - name: Determine current environment
+        id: current-env
+        run: |
+          CURRENT=$(kubectl get service ai-research-agent-service -o jsonpath='{.spec.selector.version}' || echo "blue")
+          NEW=$([ "$CURRENT" = "blue" ] && echo "green" || echo "blue")
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "new=$NEW" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ${{ steps.current-env.outputs.new }} environment
+        run: |
+          # Update deployment manifests for new environment
+          sed -i "s|VERSION_PLACEHOLDER|${{ steps.current-env.outputs.new }}|g" k8s/production/backend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          sed -i "s|VERSION_PLACEHOLDER|${{ steps.current-env.outputs.new }}|g" k8s/production/frontend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          sed -i "s|BACKEND_IMAGE_TAG|${{ needs.build.outputs.backend-image }}|g" k8s/production/backend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          sed -i "s|FRONTEND_IMAGE_TAG|${{ needs.build.outputs.frontend-image }}|g" k8s/production/frontend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          
+          # Deploy new version
+          kubectl apply -f k8s/production/backend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          kubectl apply -f k8s/production/frontend-deployment-${{ steps.current-env.outputs.new }}.yaml
+          
+          # Wait for deployment
+          kubectl rollout status deployment/ai-research-backend-${{ steps.current-env.outputs.new }} -n production --timeout=600s
+          kubectl rollout status deployment/ai-research-frontend-${{ steps.current-env.outputs.new }} -n production --timeout=600s
+
+      - name: Run production health checks
+        run: |
+          # Test new deployment internally
+          kubectl port-forward service/ai-research-agent-service-${{ steps.current-env.outputs.new }} 8080:80 &
+          sleep 10
+          
+          # Health check
+          curl -f http://localhost:8080/api/health || exit 1
+          
+          # Basic functionality test
+          npm ci
+          npm run test:production-ready
+        working-directory: ./testing
+        env:
+          TEST_URL: http://localhost:8080
+          API_KEY: ${{ secrets.PRODUCTION_API_KEY }}
+
+      - name: Switch traffic to new environment
+        run: |
+          # Update service selector to point to new version
+          kubectl patch service ai-research-agent-service -p '{"spec":{"selector":{"version":"${{ steps.current-env.outputs.new }}"}}}'
+          
+          # Verify traffic switch
+          sleep 30
+          kubectl get service ai-research-agent-service -o yaml
+
+      - name: Final production validation
+        run: |
+          sleep 60  # Wait for traffic to stabilize
+          npm run test:production-validation
+        working-directory: ./testing
+        env:
+          PRODUCTION_URL: https://ai-research-agent.com
+          API_KEY: ${{ secrets.PRODUCTION_API_KEY }}
+
+      - name: Clean up old environment
+        run: |
+          # Remove old deployment after successful switch
+          kubectl delete deployment ai-research-backend-${{ steps.current-env.outputs.current }} -n production --ignore-not-found
+          kubectl delete deployment ai-research-frontend-${{ steps.current-env.outputs.current }} -n production --ignore-not-found
+
+      - name: Create GitHub release
+        if: github.ref == 'refs/heads/main'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body: |
+            ## Changes
+            ${{ github.event.head_commit.message }}
+            
+            ## Deployment Info
+            - Backend Image: ${{ needs.build.outputs.backend-image }}
+            - Frontend Image: ${{ needs.build.outputs.frontend-image }}
+            - Deployed Environment: ${{ steps.current-env.outputs.new }}
+          draft: false
+          prerelease: false
+
+      - name: Notify deployment success
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: 'Production deployment successful! 🎉'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Cleanup on failure
+  cleanup-on-failure:
+    name: Cleanup on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: failure()
+    
+    steps:
+      - name: Rollback staging deployment
+        if: contains(needs.*.result, 'failure') && needs.deploy-staging.result == 'failure'
+        run: |
+          kubectl rollout undo deployment/ai-research-backend -n staging
+          kubectl rollout undo deployment/ai-research-frontend -n staging
+
+      - name: Rollback production deployment
+        if: contains(needs.*.result, 'failure') && needs.deploy-production.result == 'failure'
+        run: |
+          # Emergency rollback - switch back to previous environment
+          CURRENT=$(kubectl get service ai-research-agent-service -o jsonpath='{.spec.selector.version}')
+          PREVIOUS=$([ "$CURRENT" = "blue" ] && echo "green" || echo "blue")
+          kubectl patch service ai-research-agent-service -p "{\"spec\":{\"selector\":{\"version\":\"$PREVIOUS\"}}}"
+
+      - name: Notify failure
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: 'Deployment failed! 🚨 Rollback initiated.'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

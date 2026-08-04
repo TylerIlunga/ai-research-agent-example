@@ -1,0 +1,332 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "AI Research Agent - Production Monitoring",
+    "tags": ["ai-research-agent", "production", "observability"],
+    "timezone": "UTC",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"],
+      "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "environment",
+          "type": "custom",
+          "options": [
+            {"text": "Production", "value": "production"},
+            {"text": "Staging", "value": "staging"},
+            {"text": "Development", "value": "development"}
+          ],
+          "current": {"text": "Production", "value": "production"}
+        },
+        {
+          "name": "user_tier",
+          "type": "custom",
+          "options": [
+            {"text": "All", "value": "all"},
+            {"text": "Free", "value": "free"},
+            {"text": "Premium", "value": "premium"},
+            {"text": "Enterprise", "value": "enterprise"}
+          ],
+          "current": {"text": "All", "value": "all"},
+          "multi": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health Overview",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "ai_research_agent_health_score",
+            "legendFormat": "Health Score"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 70},
+                {"color": "green", "value": 85}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Research Queries - Success Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_research_agent_queries_successful_total[5m]) / rate(ai_research_agent_queries_total[5m]) * 100",
+            "legendFormat": "Success Rate %"
+          },
+          {
+            "expr": "rate(ai_research_agent_queries_total[5m])",
+            "legendFormat": "Total Queries/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Response Time Distribution",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(ai_research_agent_research_duration_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ai_research_agent_research_duration_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(ai_research_agent_research_duration_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Users & Sessions",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "ai_research_agent_active_users",
+            "legendFormat": "Active Users"
+          },
+          {
+            "expr": "ai_research_agent_active_connections",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "ai_research_agent_active_sessions",
+            "legendFormat": "Active Sessions"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Error Rate by Type",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(ai_research_agent_errors_total[5m]) by (error_type)",
+            "legendFormat": "{{error_type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "System Resources",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "ai_research_agent_memory_usage_percentage",
+            "legendFormat": "Memory %"
+          },
+          {
+            "expr": "ai_research_agent_cpu_usage_percentage",
+            "legendFormat": "CPU %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "External API Health",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+        "targets": [
+          {
+            "expr": "ai_research_agent_external_api_health",
+            "legendFormat": "{{provider}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.8},
+                {"color": "green", "value": 0.95}
+              ]
+            },
+            "unit": "percentunit"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Token Usage & Cost",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+        "targets": [
+          {
+            "expr": "rate(ai_research_agent_tokens_used_total[5m])",
+            "legendFormat": "Tokens/sec"
+          },
+          {
+            "expr": "rate(ai_research_agent_cost_total[5m])",
+            "legendFormat": "Cost/sec ($)"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Business Metrics - Revenue",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "ai_research_agent_revenue_total",
+            "legendFormat": "Total Revenue"
+          },
+          {
+            "expr": "ai_research_agent_revenue_per_user",
+            "legendFormat": "Revenue per User"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "User Satisfaction Score",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "targets": [
+          {
+            "expr": "ai_research_agent_user_satisfaction_score",
+            "legendFormat": "Satisfaction"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 3},
+                {"color": "green", "value": 4}
+              ]
+            },
+            "unit": "none",
+            "min": 1,
+            "max": 5
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Research Tools Usage",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+        "targets": [
+          {
+            "expr": "ai_research_agent_tool_invocations_total",
+            "legendFormat": "{{tool_name}}"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Alert Status",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+        "targets": [
+          {
+            "expr": "ai_research_agent_alerts_active",
+            "legendFormat": "{{severity}}"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "severity": "Severity",
+                "Value": "Count"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "ai_research_agent_deployment_timestamp",
+          "iconColor": "blue",
+          "textFormat": "Deployment: {{version}}"
+        },
+        {
+          "name": "Incidents",
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "ai_research_agent_incident_timestamp",
+          "iconColor": "red",
+          "textFormat": "Incident: {{type}}"
+        }
+      ]
+    }
+  }
+}

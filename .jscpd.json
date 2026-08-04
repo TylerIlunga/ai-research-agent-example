@@ -1,0 +1,40 @@
+{
+  "threshold": 50,
+  "minLines": 5,
+  "minTokens": 70,
+  "format": ["typescript", "javascript", "tsx", "jsx"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**", 
+    "**/build/**",
+    "**/coverage/**",
+    "**/*.config.js",
+    "**/*.config.ts",
+    "**/*.d.ts",
+    "**/*.min.js",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/mock*/**"
+  ],
+  "reporters": [
+    "html",
+    "json",
+    "console"
+  ],
+  "output": "./duplication-report",
+  "absolute": true,
+  "gitignore": true,
+  "blame": true,
+  "verbose": false,
+  "silent": false,
+  "exitCode": 1,
+  "formatsExts": {
+    "typescript": ["ts", "tsx"],
+    "javascript": ["js", "jsx"],
+    "markup": ["html", "htm"],
+    "css": ["css", "scss", "sass", "less"]
+  },
+  "engines": [
+    "pmd"
+  ]
+}

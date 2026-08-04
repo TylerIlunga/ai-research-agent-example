@@ -1,214 +1,175 @@
+import crypto from "crypto";
 import type { Request, Response } from "express";
-import { createResearchAgent } from "../agents/researchAgent";
+import { runResearch } from "../agents/researchAgent";
+import { config } from "../config/env";
+import { logger } from "../utils/logger";
+import type { ResearchEvent, Source } from "../types/events";
 
-// Helper function to clean complex event data
-const cleanEventData = (chunk: {
-  event: string;
-  data?: any;
-  name?: string;
-  metadata?: any;
-}) => {
-  const { event, data, name, metadata } = chunk;
+const MAX_QUERY_LENGTH = 2_000;
+const HEARTBEAT_MS = 15_000;
 
-  // Extract only essential information based on event type
-  switch (event) {
-    case "on_chat_model_stream":
-      return {
-        event,
-        data: {
-          chunk: {
-            content: data?.chunk?.content || "",
-            tool_calls: data?.chunk?.tool_calls || [],
-          },
-        },
-        name: name || "model",
-        metadata: {
-          langgraph_node: metadata?.langgraph_node,
-          langgraph_step: metadata?.langgraph_step,
-        },
-      };
+interface ParsedRequest {
+  query: string;
+  conversationId: string;
+}
 
-    case "on_chat_model_start":
-    case "on_chat_model_end":
-      return {
-        event,
-        data: {
-          output: data?.output
-            ? {
-                content:
-                  typeof data.output === "string"
-                    ? data.output
-                    : data.output?.content || "",
-                final_answer: data.output?.final_answer,
-              }
-            : undefined,
-        },
-        name: name || "model",
-        metadata: {
-          langgraph_node: metadata?.langgraph_node,
-          langgraph_step: metadata?.langgraph_step,
-        },
-      };
+function parse(req: Request): ParsedRequest | { error: string } {
+  const source = req.method === "GET" ? req.query : req.body;
+  const query = typeof source?.query === "string" ? source.query.trim() : "";
+  const conversationId =
+    typeof source?.conversationId === "string" && source.conversationId.trim()
+      ? source.conversationId.trim().slice(0, 100)
+      : crypto.randomUUID();
 
-    case "on_tool_start":
-    case "on_tool_end":
-      return {
-        event,
-        data: {
-          input: data?.input
-            ? {
-                query: data.input?.query || data.input,
-              }
-            : undefined,
-          output: data?.output || undefined,
-          name: data?.name,
-        },
-        name: name || "tool",
-        metadata: {
-          langgraph_node: metadata?.langgraph_node,
-          langgraph_step: metadata?.langgraph_step,
-        },
-      };
-
-    case "on_chain_start":
-    case "on_chain_end":
-      return {
-        event,
-        data: {
-          input: data?.input
-            ? {
-                type: "simplified",
-                message_count: data.input?.messages?.length || 0,
-              }
-            : undefined,
-          output: data?.output || undefined,
-        },
-        name: name || "chain",
-        metadata: {
-          langgraph_node: metadata?.langgraph_node,
-          langgraph_step: metadata?.langgraph_step,
-        },
-      };
-
-    default:
-      // For unknown events, return minimal data
-      return {
-        event,
-        data: data ? { simplified: true } : undefined,
-        name: name || "unknown",
-        metadata: {
-          langgraph_node: metadata?.langgraph_node,
-          langgraph_step: metadata?.langgraph_step,
-        },
-      };
+  if (!query) return { error: "A research question is required." };
+  if (query.length > MAX_QUERY_LENGTH) {
+    return { error: `Questions are limited to ${MAX_QUERY_LENGTH} characters.` };
   }
-};
+  return { query, conversationId };
+}
 
-// Helper function to determine if an event should be sent to the client
-const shouldSendEvent = (chunk: {
-  event: string;
-  data?: any;
-  metadata?: any;
-}): boolean => {
-  const { event, data, metadata } = chunk;
-
-  // Always send model streaming events with content
-  if (event === "on_chat_model_stream" && data?.chunk?.content) {
-    return true;
+/**
+ * Server-sent events, done properly:
+ *
+ * - headers flushed immediately so the browser sees the stream open;
+ * - a comment heartbeat every 15s so proxies and load balancers do not reap an
+ *   idle connection during a long search;
+ * - `X-Accel-Buffering: no` for nginx-style proxies;
+ * - client disconnect aborts the run instead of letting it keep spending on
+ *   model and search calls nobody will read.
+ *
+ * Note that `compression()` is configured in index.ts to skip this content
+ * type — with gzip in the path, events sit in the compressor's buffer and the
+ * stream stops being real-time.
+ */
+export const streamResponse = async (req: Request, res: Response): Promise<void> => {
+  const parsed = parse(req);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error, code: "INVALID_QUERY" });
+    return;
   }
 
-  // Send tool events for progress tracking
-  if (event.includes("tool") && metadata?.langgraph_node) {
-    return true;
-  }
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
 
-  // Send chain events for workflow tracking
-  if (event.includes("chain") && metadata?.langgraph_node) {
-    return true;
-  }
+  const controller = new AbortController();
+  let closed = false;
 
-  // Send final model responses
-  if (event === "on_chat_model_end" && data?.output?.content) {
-    return true;
-  }
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(": keep-alive\n\n");
+  }, HEARTBEAT_MS);
 
-  // Skip other noisy events
-  return false;
-};
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    res.end();
+  };
 
-// Process a query and return the full response
-export const processQuery = async (req: Request, res: Response) => {
-  try {
-    const { query, conversationId } = req.body;
-
-    if (!query) {
-      res.status(400).json({ error: "Query is required" });
-      return;
-    }
-
-    const agent = await createResearchAgent();
-
-    // Run the agent with the query
-    const result = await agent.invoke({
-      input: query,
-      conversationId: conversationId || "default",
+  // Listen on the *response*, not the request. `req`'s "close" fires when the
+  // request stream ends — which for a POST is the moment the body has been
+  // read, a few milliseconds in — and would abort every run immediately.
+  // `res`'s "close" is the one that means the client actually went away.
+  res.on("close", () => {
+    if (closed) return;
+    logger.info("Client disconnected, aborting run", {
+      conversationId: parsed.conversationId,
     });
+    controller.abort();
+    closed = true;
+    clearInterval(heartbeat);
+  });
 
-    res.json({
-      response: result.output,
-      conversationId: result.conversationId || "default",
-      sources: result.sources || [],
+  const emit = (event: ResearchEvent) => {
+    if (closed) return;
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  const startedAt = Date.now();
+  logger.info("Research started", {
+    conversationId: parsed.conversationId,
+    length: parsed.query.length,
+  });
+
+  try {
+    await runResearch({
+      question: parsed.query,
+      conversationId: parsed.conversationId,
+      emit,
+      signal: controller.signal,
     });
   } catch (error) {
-    console.error("Error processing query:", error);
-    res.status(500).json({ error: "Failed to process query" });
+    // runResearch handles its own failures; this is the last line of defence.
+    logger.error("Unhandled streaming failure", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    emit({
+      type: "error",
+      code: "internal_error",
+      message: "The research run failed unexpectedly.",
+      retryable: true,
+    });
+    emit({ type: "done", reason: "failed" });
+  } finally {
+    logger.info("Research finished", {
+      conversationId: parsed.conversationId,
+      ms: Date.now() - startedAt,
+    });
+    finish();
   }
 };
 
-// Stream the response back to the client
-export const streamResponse = async (req: Request, res: Response) => {
-  try {
-    const { query, conversationId } = req.query as {
-      query?: string;
-      conversationId?: string;
-    };
+/**
+ * Non-streaming variant for scripts and integrations. Runs the same graph and
+ * folds the event stream into a single JSON response.
+ */
+export const processQuery = async (req: Request, res: Response): Promise<void> => {
+  const parsed = parse(req);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error, code: "INVALID_QUERY" });
+    return;
+  }
 
-    if (!query) {
-      res.status(400).json({ error: "Query is required" });
-      return;
-    }
+  const controller = new AbortController();
+  res.on("close", () => controller.abort());
 
-    // Set up SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
+  let markdown = "";
+  let streamed = "";
+  let sources: Source[] = [];
+  let failure: { code: string; message: string } | null = null;
 
-    const agent = await createResearchAgent();
-
-    // Stream the agent's thinking process and results
-    const stream = await agent.streamEvents({
-      input: query,
-      conversationId: conversationId || "default",
-    });
-
-    // Process the stream and send cleaned data to client
-    for await (const chunk of stream) {
-      // Filter and clean the chunk to remove complex nested objects
-      const cleanedChunk = cleanEventData(chunk);
-
-      // Only send relevant events to reduce noise
-      if (shouldSendEvent(cleanedChunk)) {
-        console.log("Sending cleaned chunk:", cleanedChunk);
-        res.write(`data: ${JSON.stringify(cleanedChunk)}\n\n`);
+  await runResearch({
+    question: parsed.query,
+    conversationId: parsed.conversationId,
+    signal: controller.signal,
+    emit: (event) => {
+      if (event.type === "report") {
+        markdown = event.markdown;
+        sources = event.sources;
+      } else if (event.type === "token") {
+        // Accumulated separately: the report is authoritative when it arrives,
+        // and the token stream is the fallback when it does not.
+        streamed += event.text;
+      } else if (event.type === "error") {
+        failure = { code: event.code, message: event.message };
       }
-    }
+    },
+  });
 
-    // End the response
-    res.write("data: [DONE]\n\n");
-    res.end();
-  } catch (error) {
-    console.error("Error streaming response:", error);
-    res.write(`data: ${JSON.stringify({ error: "An error occurred" })}\n\n`);
-    res.end();
+  if (failure) {
+    const { code, message } = failure as { code: string; message: string };
+    res.status(code === "missing_credentials" ? 503 : 500).json({ error: message, code });
+    return;
   }
+
+  res.json({
+    response: markdown || streamed,
+    conversationId: parsed.conversationId,
+    sources,
+    model: config.activeModel,
+  });
 };

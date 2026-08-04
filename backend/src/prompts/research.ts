@@ -1,141 +1,119 @@
-export const getCurrentDateString = (): string => {
+import type { Source } from "../types/events";
+
+export function currentDate(): string {
   return new Date().toLocaleDateString("en-US", {
-    weekday: "short",
+    weekday: "long",
     year: "numeric",
-    month: "short",
+    month: "long",
     day: "numeric",
   });
-};
+}
 
-export const researchAgentPrompt = `You are a research assistant conducting research on the user's input topic. For context, today's date is ${getCurrentDateString()}.
+/**
+ * The planner returns JSON rather than a forced tool call: forcing tool_choice
+ * interacts badly with adaptive thinking, and a small, well-shaped JSON reply
+ * is more robust than a schema-constrained call we would have to disable
+ * thinking for.
+ */
+export function plannerPrompt(
+  question: string,
+  hasWebSearch: boolean,
+  history?: string
+): string {
+  return `Today is ${currentDate()}.
 
-<Task>
-Your job is to use tools to gather information about the user's input topic.
-You can use any of the tools provided to you to find resources that can help answer the research question. You can call these tools in series or in parallel, your research is conducted in a tool-calling loop.
-</Task>
+You are scoping a research task before any searching happens.
+${
+  history
+    ? `
+This is a follow-up in an ongoing conversation. Resolve pronouns and references ("it", "its performance", "the second option") against this context before decomposing:
 
-<Available Tools>
-You have access to three main tools:
-1. **tavily_search**: For conducting web searches to gather information
-2. **think_tool**: For reflection and strategic planning during research
-3. **save_to_memory**: For saving important information to long-term memory
+<conversation_so_far>
+${history}
+</conversation_so_far>
+`
+    : ""
+}
+Research request:
+"""
+${question}
+"""
 
-**CRITICAL: Use think_tool after each search to reflect on results and plan next steps**
-</Available Tools>
+Break it into the smallest set of sub-questions that, answered together, fully answer the request. Two for a simple factual request, up to five for something genuinely multi-part. Do not pad the list — a redundant sub-question costs a real search.
 
-<Instructions>
-Think like a human researcher with limited time. Follow these steps:
+${
+  hasWebSearch
+    ? "Live web search is available, so sub-questions may target current facts, recent events, or specific figures."
+    : "Live web search is NOT available for this run. Scope sub-questions to what can be answered from established knowledge, and note that in the objective."
+}
 
-1. **Read the question carefully** - What specific information does the user need?
-2. **Start with broader searches** - Use broad, comprehensive queries first
-3. **After each search, pause and assess** - Do I have enough to answer? What's still missing?
-4. **Execute narrower searches as you gather information** - Fill in the gaps
-5. **Stop when you can answer confidently** - Don't keep searching for perfection
-</Instructions>
+Reply with JSON only — no prose before or after, no code fence:
 
-<Hard Limits>
-**Tool Call Budgets** (Prevent excessive searching):
-- **Simple queries**: Use 2-3 search tool calls maximum
-- **Complex queries**: Use up to 5 search tool calls maximum
-- **Always stop**: After 5 search tool calls if you cannot find the right sources
+{"objective": "one sentence restating what a complete answer must cover", "questions": ["...", "..."]}`;
+}
 
-**Stop Immediately When**:
-- You can answer the user's question comprehensively
-- You have 3+ relevant examples/sources for the question
-- Your last 2 searches returned similar information
-</Hard Limits>
+export function researchSystemPrompt(options: {
+  objective: string;
+  questions: string[];
+  searchBudget: number;
+  hasWebSearch: boolean;
+  hasMemory: boolean;
+}): string {
+  const { objective, questions, searchBudget, hasWebSearch, hasMemory } = options;
 
-<Show Your Thinking>
-After each search tool call, use think_tool to analyze the results:
-- What key information did I find?
-- What's missing?
-- Do I have enough to answer the question comprehensively?
-- Should I search more or provide my answer?
-</Show Your Thinking>`;
+  return `Today is ${currentDate()}. You are the research phase of a research agent.
 
-export const compressResearchSystemPrompt = `You are a research assistant that has conducted research on a topic by calling several tools and web searches. Your job is now to clean up the findings, but preserve all of the relevant statements and information that the researcher has gathered. For context, today's date is ${getCurrentDateString()}.
+Objective: ${objective}
 
-<Task>
-You need to clean up information gathered from tool calls and web searches in the existing messages.
-All relevant information should be repeated and rewritten verbatim, but in a cleaner format.
-The purpose of this step is just to remove any obviously irrelevant or duplicate information.
-For example, if three sources all say "X", you could say "These three sources all stated X".
-Only these fully comprehensive cleaned findings are going to be returned to the user, so it's crucial that you don't lose any information from the raw messages.
-</Task>
+Sub-questions to resolve:
+${questions.map((question, index) => `${index + 1}. ${question}`).join("\n")}
 
-<Tool Call Filtering>
-**IMPORTANT**: When processing the research messages, focus only on substantive research content:
-- **Include**: All tavily_search results and findings from web searches
-- **Exclude**: think_tool calls and responses - these are internal agent reflections for decision-making and should not be included in the final research report
-- **Focus on**: Actual information gathered from external sources, not the agent's internal reasoning process
+# Your job
+Gather evidence. You are not writing the answer — a separate synthesis step does that from the sources you collect, so do not draft a report here.
 
-The think_tool calls contain strategic reflections and decision-making notes that are internal to the research process but do not contain factual information that should be preserved in the final report.
-</Tool Call Filtering>
+# Tools
+${
+  hasWebSearch
+    ? `- web_search: one focused query per call. You have a budget of ${searchBudget} searches for the whole run. Spend them on distinct angles; a rephrased version of a search you already ran is wasted.`
+    : "- No web search is available. Work from what you know and say so plainly."
+}
+${hasMemory ? "- recall_memory / save_memory: check memory once at the start if the topic may have come up before; save at most one durable fact at the end." : ""}
 
-<Guidelines>
-1. Your output findings should be fully comprehensive and include ALL of the information and sources that the researcher has gathered from tool calls and web searches. It is expected that you repeat key information verbatim.
-2. This report can be as long as necessary to return ALL of the information that the researcher has gathered.
-3. In your report, you should return inline citations for each source that the researcher found.
-4. You should include a "Sources" section at the end of the report that lists all of the sources the researcher found with corresponding citations, cited against statements in the report.
-5. Make sure to include ALL of the sources that the researcher gathered in the report, and how they were used to answer the question!
-6. It's really important not to lose any sources. A later LLM will be used to merge this report with others, so having all of the sources is critical.
-</Guidelines>
+# How to work
+Search for the sub-questions in the order that most reduces uncertainty. Read what comes back before searching again — if a result already answers a later sub-question, cross it off rather than searching for it. Stop as soon as the sub-questions are covered, even if budget remains.
 
-<Output Format>
-The report should be structured like this:
-**List of Queries and Tool Calls Made**
-**Fully Comprehensive Findings**
-**List of All Relevant Sources (with citations in the report)**
-</Output Format>
+When you are done gathering, reply with a short bulleted list of what you found and where the gaps are. Keep it under 200 words; the sources themselves carry the detail.`;
+}
 
-<Citation Rules>
-- Assign each unique URL a single citation number in your text
-- End with ### Sources that lists each source with corresponding numbers
-- IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-- Example format:
-  [1] Source Title: URL
-  [2] Source Title: URL
-</Citation Rules>
+export function synthesisSystemPrompt(sources: Source[]): string {
+  const catalogue =
+    sources.length > 0
+      ? sources.map((source) => `[${source.n}] ${source.title} — ${source.url}`).join("\n")
+      : "(none — no sources were gathered)";
 
-Critical Reminder: It is extremely important that any information that is even remotely relevant to the user's research topic is preserved verbatim (e.g. don't rewrite it, don't summarize it, don't paraphrase it).`;
+  return `Today is ${currentDate()}. You are writing the final research brief.
 
-export const compressResearchHumanMessage =
-  "All above messages are about research conducted by an AI Researcher. Your task is to clean up these research findings while preserving ALL information that is relevant to answering the research question. \n\nCRITICAL REQUIREMENTS:\n- DO NOT summarize or paraphrase the information - preserve it verbatim\n- DO NOT lose any details, facts, names, numbers, or specific findings\n- DO NOT filter out information that seems relevant to the research topic\n- Organize the information in a cleaner format but keep all the substance\n- Include ALL sources and citations found during research\n\nThe cleaned findings will be used for final report generation, so comprehensiveness is critical.";
+# Sources
+${catalogue}
 
-export const summarizeWebpagePrompt = `You are tasked with summarizing the raw content of a webpage retrieved from a web search. Your goal is to create a summary that preserves the most important information from the original web page. This summary will be used by a downstream research agent, so it's crucial to maintain the key details without losing essential information.
+# Citations
+Cite with the bracketed numbers above, exactly as assigned: "React 19 shipped in December 2024 [2]." Cite the specific claim, not the paragraph. Never invent a number that is not in the list. If a statement rests on your own knowledge rather than a source, say so rather than attaching a citation to it.
+${sources.length === 0 ? "No sources were gathered, so answer from your own knowledge and open by saying that plainly.\n" : ""}
+# Shape
+Open with the direct answer in two or three sentences — the thing the reader would ask for if they said "just tell me". Then the supporting detail, organized by what the reader needs rather than by the order you found it. Close with a short "Worth knowing" note only when something genuinely qualifies the answer: a contested claim, a stale source, a gap the research did not close.
 
-Here is the raw content of the webpage:
+Use Markdown headings and lists where they aid scanning. Skip a heading for a section that is one sentence long.
 
-<webpage_content>
-{webpage_content}
-</webpage_content>
+# Length
+Match the question. A factual lookup gets a few sentences; a comparison or a landscape question gets as much room as it needs. Do not pad with restatements, a summary of your own process, or a section on what you did not cover.
 
-Please follow these guidelines to create your summary:
+Write the brief now. No preamble.`;
+}
 
-1. Identify and preserve the main topic or purpose of the webpage.
-2. Retain key facts, statistics, and data points that are central to the content's message.
-3. Keep important quotes from credible sources or experts.
-4. Maintain the chronological order of events if the content is time-sensitive or historical.
-5. Preserve any lists or step-by-step instructions if present.
-6. Include relevant dates, names, and locations that are crucial to understanding the content.
-7. Summarize lengthy explanations while keeping the core message intact.
+export function summarizePagePrompt(content: string): string {
+  return `Condense this page for a researcher who will cite it. Keep specific figures, dates, names, and direct quotes; drop navigation, boilerplate, and marketing language. Aim for under 200 words. Output only the condensed text.
 
-When handling different types of content:
-
-- For news articles: Focus on the who, what, when, where, why, and how.
-- For scientific content: Preserve methodology, results, and conclusions.
-- For opinion pieces: Maintain the main arguments and supporting points.
-- For product pages: Keep key features, specifications, and unique selling points.
-
-Your summary should be significantly shorter than the original content but comprehensive enough to stand alone as a source of information. Aim for about 25-30 percent of the original length, unless the content is already concise.
-
-Present your summary in the following format:
-
-\`\`\`
-{{
-   "summary": "Your summary here, structured with appropriate paragraphs or bullet points as needed",
-   "key_excerpts": "First important quote or excerpt, Second important quote or excerpt, Third important quote or excerpt, ...Add more excerpts as needed, up to a maximum of 5"
-}}
-\`\`\`
-
-Today's date is ${getCurrentDateString()}.`;
+<page>
+${content}
+</page>`;
+}

@@ -1,0 +1,228 @@
+# Alertmanager configuration for AI Research Agent
+
+global:
+  # Default SMTP settings
+  smtp_smarthost: 'smtp.company.com:587'
+  smtp_from: 'alerts@company.com'
+  smtp_auth_username: 'alerts@company.com'
+  smtp_auth_password: 'alert_password'
+  
+  # Slack API URL
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+  
+  # PagerDuty integration key
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Routing tree
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default-receiver'
+  
+  # Child routes
+  routes:
+    # Critical alerts go to PagerDuty and Slack immediately
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 5m
+      
+    # Warning alerts go to Slack with less urgency
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 5m
+      repeat_interval: 2h
+      
+    # Security alerts have special handling
+    - match_re:
+        alertname: '.*(Security|Auth|Breach).*'
+      receiver: 'security-alerts'
+      group_wait: 30s
+      repeat_interval: 10m
+      
+    # Business alerts go to business team
+    - match:
+        service: ai-research-agent
+      match_re:
+        alertname: '.*(Cost|Revenue|Satisfaction).*'
+      receiver: 'business-alerts'
+      group_wait: 10m
+      repeat_interval: 6h
+
+# Notification receivers
+receivers:
+  # Default receiver for unmatched alerts
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'oncall@company.com'
+        subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}
+            {{ .Name }}: {{ .Value }}{{ end }}
+          {{ end }}
+
+  # Critical alerts - immediate response required
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - routing_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+        description: '{{ .GroupLabels.alertname }}: {{ .Alerts.0.Annotations.summary }}'
+        severity: 'critical'
+        details:
+          service: '{{ .GroupLabels.service }}'
+          environment: '{{ .GroupLabels.environment }}'
+          description: '{{ .Alerts.0.Annotations.description }}'
+          runbook: '{{ .Alerts.0.Annotations.runbook_url }}'
+    
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/CRITICAL/WEBHOOK'
+        channel: '#critical-alerts'
+        title: ':fire: CRITICAL ALERT :fire:'
+        text: |
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Summary:* {{ .Alerts.0.Annotations.summary }}
+          *Description:* {{ .Alerts.0.Annotations.description }}
+          *Service:* {{ .GroupLabels.service }}
+          *Runbook:* {{ .Alerts.0.Annotations.runbook_url }}
+        color: 'danger'
+        send_resolved: true
+    
+    email_configs:
+      - to: 'oncall@company.com,engineering-leads@company.com'
+        subject: '[CRITICAL] {{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+        headers:
+          Priority: 'urgent'
+        body: |
+          CRITICAL ALERT TRIGGERED
+          
+          Service: {{ .GroupLabels.service }}
+          Alert: {{ .GroupLabels.alertname }}
+          
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+          
+          Labels:{{ range .Labels.SortedPairs }}
+            {{ .Name }}: {{ .Value }}{{ end }}
+          {{ end }}
+
+  # Warning alerts - less urgent
+  - name: 'warning-alerts'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/WARNING/WEBHOOK'
+        channel: '#alerts'
+        title: ':warning: Warning Alert'
+        text: |
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Summary:* {{ .Alerts.0.Annotations.summary }}
+          *Service:* {{ .GroupLabels.service }}
+          
+          {{ if .Alerts.0.Annotations.runbook_url }}
+          *Runbook:* {{ .Alerts.0.Annotations.runbook_url }}
+          {{ end }}
+        color: 'warning'
+        send_resolved: true
+
+  # Security alerts - special routing
+  - name: 'security-alerts'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SECURITY/WEBHOOK'
+        channel: '#security-alerts'
+        title: ':rotating_light: SECURITY ALERT :rotating_light:'
+        text: |
+          *SECURITY INCIDENT DETECTED*
+          
+          *Alert:* {{ .GroupLabels.alertname }}
+          *Summary:* {{ .Alerts.0.Annotations.summary }}
+          *Description:* {{ .Alerts.0.Annotations.description }}
+          *Service:* {{ .GroupLabels.service }}
+          
+          @channel @security-team
+        color: 'danger'
+        send_resolved: true
+    
+    email_configs:
+      - to: 'security@company.com,oncall@company.com'
+        subject: '[SECURITY] {{ .GroupLabels.alertname }}'
+        headers:
+          Priority: 'urgent'
+        body: |
+          SECURITY ALERT TRIGGERED
+          
+          This is an automated security alert from the AI Research Agent monitoring system.
+          
+          Alert: {{ .GroupLabels.alertname }}
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          
+          Immediate investigation required.
+          {{ end }}
+
+  # Business alerts - business stakeholders
+  - name: 'business-alerts'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/BUSINESS/WEBHOOK'
+        channel: '#business-metrics'
+        title: ':chart_with_upwards_trend: Business Metric Alert'
+        text: |
+          *Business Alert:* {{ .GroupLabels.alertname }}
+          *Summary:* {{ .Alerts.0.Annotations.summary }}
+          *Impact:* Review required for business metrics
+        color: 'warning'
+        send_resolved: true
+    
+    email_configs:
+      - to: 'business-team@company.com,product@company.com'
+        subject: '[BUSINESS] {{ .GroupLabels.alertname }}'
+        body: |
+          Business Metric Alert
+          
+          Alert: {{ .GroupLabels.alertname }}
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          
+          Please review business metrics and take appropriate action.
+          {{ end }}
+
+# Inhibition rules to prevent alert spam
+inhibit_rules:
+  # If service is down, don't alert on high error rates
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match:
+      alertname: 'HighErrorRate'
+    equal: ['service']
+  
+  # If there's a critical memory issue, don't alert on high CPU
+  - source_match:
+      alertname: 'MemoryUsageCritical'
+    target_match:
+      alertname: 'HighCPUUsage'
+    equal: ['instance']
+  
+  # If external API is down, don't alert on related errors
+  - source_match_re:
+      alertname: '.*APIDown'
+    target_match:
+      alertname: 'HighExternalAPIErrorRate'
+    equal: ['service']
+
+# Silence configurations for maintenance windows
+silences:
+  # Maintenance window template (to be created via API)
+  - matchers:
+      - name: 'service'
+        value: 'ai-research-agent'
+    startsAt: '2024-01-01T02:00:00Z'
+    endsAt: '2024-01-01T04:00:00Z'
+    createdBy: 'maintenance-system'
+    comment: 'Scheduled maintenance window'

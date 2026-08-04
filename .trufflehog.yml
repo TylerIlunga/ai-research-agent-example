@@ -1,0 +1,97 @@
+# TruffleHog Configuration for AI Research Agent
+# Secret detection and scanning configuration
+
+# Include patterns for files to scan
+include_paths:
+  - "**/*.js"
+  - "**/*.ts"
+  - "**/*.tsx" 
+  - "**/*.jsx"
+  - "**/*.json"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.env*"
+  - "**/*.config.*"
+  - "**/Dockerfile*"
+  - "**/*.sql"
+  - "**/*.md"
+
+# Exclude patterns for files to ignore
+exclude_paths:
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/coverage/**"
+  - "**/.git/**"
+  - "**/package-lock.json"
+  - "**/yarn.lock"
+  - "**/*.min.js"
+  - "**/*.map"
+
+# Custom detectors for AI Research Agent specific patterns
+detectors:
+  - name: "openai-api-key"
+    regex: "sk-[a-zA-Z0-9]{48}"
+    confidence: "high"
+    description: "OpenAI API Key"
+    
+  - name: "tavily-api-key"  
+    regex: "tvly-[a-zA-Z0-9]{32}"
+    confidence: "high"
+    description: "Tavily API Key"
+    
+  - name: "pinecone-api-key"
+    regex: "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+    confidence: "medium"
+    description: "Pinecone API Key"
+    
+  - name: "jwt-secret"
+    regex: "jwt[_-]?secret[\"']?\\s*[:=]\\s*[\"']?[a-zA-Z0-9+/=]{32,}[\"']?"
+    confidence: "high" 
+    description: "JWT Secret"
+    
+  - name: "database-url"
+    regex: "postgres://[^\\s\"']+|mongodb://[^\\s\"']+|mysql://[^\\s\"']+"
+    confidence: "high"
+    description: "Database Connection String"
+
+# Allowlist for known false positives
+allow:
+  paths:
+    - "**/*test*"
+    - "**/*spec*"
+    - "**/*example*"
+    - "**/*sample*"
+    - "**/mock*"
+    - "**/.env.example"
+    - "**/README.md"
+    - "**/CONTRIBUTING.md"
+    
+  secrets:
+    # Test keys and mock values
+    - "sk-test-"
+    - "tvly-test-"
+    - "test_jwt_secret"
+    - "mock_api_key"
+    - "example_key"
+    - "your_api_key_here"
+    - "placeholder"
+    - "xxxxxxxx"
+
+# Output configuration
+output:
+  format: "json"
+  file: "trufflehog-results.json"
+
+# Performance settings
+max_target_megabytes: 100
+include_detectors: []
+exclude_detectors: []
+
+# Only scan verified secrets by default
+only_verified: true
+
+# Entropy checking settings
+entropy_checks:
+  enabled: true
+  minimum_entropy: 3.5

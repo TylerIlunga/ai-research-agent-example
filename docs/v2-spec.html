@@ -1,0 +1,1493 @@
+<title>AI Research Agent — v2 Rebuild Spec</title>
+
+<style>
+  :root {
+    --paper: #F2F1EE;
+    --surface: #FBFAF9;
+    --surface-sunk: #E9E7E3;
+    --rule: #D6D2CC;
+    --ink: #1A1614;
+    --ink-soft: #4A423D;
+    --ink-mute: #7C736C;
+    --accent: #8C2F2A;
+    --accent-soft: #F0E2E0;
+    --signal: #2C645F;
+    --signal-soft: #DDE9E7;
+    --warn: #8A5A16;
+    --warn-soft: #F3E7D4;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+    --step: 0.5rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14100F;
+      --surface: #1C1817;
+      --surface-sunk: #241F1D;
+      --rule: #38312E;
+      --ink: #EDE7E3;
+      --ink-soft: #C3B9B3;
+      --ink-mute: #8C807A;
+      --accent: #DE7A72;
+      --accent-soft: #35211F;
+      --signal: #74BAB1;
+      --signal-soft: #1B2A28;
+      --warn: #D2A15C;
+      --warn-soft: #2C2419;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #14100F;
+    --surface: #1C1817;
+    --surface-sunk: #241F1D;
+    --rule: #38312E;
+    --ink: #EDE7E3;
+    --ink-soft: #C3B9B3;
+    --ink-mute: #8C807A;
+    --accent: #DE7A72;
+    --accent-soft: #35211F;
+    --signal: #74BAB1;
+    --signal-soft: #1B2A28;
+    --warn: #D2A15C;
+    --warn-soft: #2C2419;
+  }
+
+  :root[data-theme="light"] {
+    --paper: #F2F1EE;
+    --surface: #FBFAF9;
+    --surface-sunk: #E9E7E3;
+    --rule: #D6D2CC;
+    --ink: #1A1614;
+    --ink-soft: #4A423D;
+    --ink-mute: #7C736C;
+    --accent: #8C2F2A;
+    --accent-soft: #F0E2E0;
+    --signal: #2C645F;
+    --signal-soft: #DDE9E7;
+    --warn: #8A5A16;
+    --warn-soft: #F3E7D4;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: calc(var(--step) * 6);
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: calc(var(--step) * 6) calc(var(--step) * 4) calc(var(--step) * 14);
+  }
+
+  @media (min-width: 1000px) {
+    .page {
+      grid-template-columns: 210px minmax(0, 1fr);
+      gap: calc(var(--step) * 10);
+      padding-top: calc(var(--step) * 12);
+    }
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: calc(var(--step) * 5);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 3);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--step) * 2);
+    align-items: baseline;
+  }
+
+  .eyebrow span { color: var(--ink-mute); }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.2rem, 5.5vw, 3.6rem);
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .thesis {
+    font-family: var(--serif);
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .masthead-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--step) * 5);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-mute);
+    padding-top: calc(var(--step) * 2);
+  }
+
+  .masthead-facts b {
+    display: block;
+    font-weight: 400;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    opacity: 0.75;
+  }
+
+  .masthead-facts i { font-style: normal; color: var(--ink); }
+
+  /* ---------- rail ---------- */
+
+  .rail { display: none; }
+
+  @media (min-width: 1000px) {
+    .rail {
+      display: block;
+      position: sticky;
+      top: calc(var(--step) * 6);
+      align-self: start;
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      line-height: 1.5;
+    }
+    .rail ol {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--step) * 2);
+    }
+    .rail a {
+      color: var(--ink-mute);
+      text-decoration: none;
+      display: grid;
+      grid-template-columns: 2.2em 1fr;
+      border-left: 2px solid transparent;
+      padding-left: calc(var(--step) * 1.5);
+    }
+    .rail a:hover { color: var(--accent); border-left-color: var(--accent); }
+    .rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .rail em { font-style: normal; color: var(--ink-mute); opacity: 0.6; }
+  }
+
+  /* ---------- content ---------- */
+
+  .content {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 12);
+  }
+
+  section { scroll-margin-top: calc(var(--step) * 5); }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--step) * 2.5);
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: calc(var(--step) * 2);
+    margin-bottom: calc(var(--step) * 5);
+  }
+
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.5rem, 3.2vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    font-weight: 620;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 calc(var(--step) * 2);
+  }
+
+  p, li { max-width: var(--measure); }
+
+  .content p { margin: 0 0 calc(var(--step) * 3); color: var(--ink-soft); }
+  .content p:last-child { margin-bottom: 0; }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 5);
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--surface-sunk);
+    padding: 0.12em 0.36em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  a { color: var(--accent); }
+
+  /* ---------- finding cards ---------- */
+
+  .findings {
+    display: grid;
+    gap: calc(var(--step) * 3);
+  }
+
+  @media (min-width: 700px) {
+    .findings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  .finding {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: calc(var(--step) * 3.5);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 1.5);
+  }
+
+  .finding > .sev {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    align-self: flex-start;
+    padding: 0.2em 0.55em;
+    border-radius: 2px;
+  }
+
+  .sev.broken { background: var(--accent-soft); color: var(--accent); }
+  .sev.wrong { background: var(--warn-soft); color: var(--warn); }
+  .sev.thin { background: var(--signal-soft); color: var(--signal); }
+
+  .finding h4 {
+    font-family: var(--serif);
+    font-size: 1.12rem;
+    font-weight: 400;
+    line-height: 1.3;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .finding p {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+    max-width: none;
+  }
+
+  .loc {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-mute);
+    margin-top: auto;
+    padding-top: calc(var(--step) * 1.5);
+    border-top: 1px dotted var(--rule);
+    word-break: break-all;
+  }
+
+  /* ---------- before / after ---------- */
+
+  .swap {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  @media (min-width: 700px) {
+    .swap { grid-template-columns: 1fr 1fr; }
+  }
+
+  .swap > div {
+    background: var(--surface);
+    padding: calc(var(--step) * 3);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 1.5);
+  }
+
+  .swap-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+
+  .swap .after .swap-label { color: var(--signal); }
+
+  .swap ul {
+    margin: 0;
+    padding-left: 1.1em;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 1);
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+  }
+
+  .swap li { max-width: none; }
+
+  /* ---------- pipeline ---------- */
+
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .node {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: calc(var(--step) * 3);
+    padding: calc(var(--step) * 3.5);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .node:last-child { border-bottom: 0; }
+
+  .node-name {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+
+  .node-name em {
+    display: block;
+    font-style: normal;
+    font-size: 0.68rem;
+    color: var(--ink-mute);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-top: 0.3em;
+  }
+
+  .node-body { font-size: 0.94rem; color: var(--ink-soft); }
+  .node-body p { margin: 0 0 calc(var(--step) * 1.5); max-width: none; }
+  .node-body p:last-child { margin-bottom: 0; }
+
+  .emits {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--signal);
+    margin-top: calc(var(--step) * 1.5);
+    display: block;
+  }
+
+  @media (max-width: 640px) {
+    .node { grid-template-columns: minmax(0, 1fr); gap: calc(var(--step) * 1.5); }
+  }
+
+  /* ---------- tables ---------- */
+
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--surface);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 0.88rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: calc(var(--step) * 2) calc(var(--step) * 3);
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    background: var(--surface-sunk);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td.ev { font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+  td.pl { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-mute); }
+  td p { margin: 0; max-width: none; }
+
+  /* ---------- tokens (design system swatches) ---------- */
+
+  .tokens {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: calc(var(--step) * 2);
+  }
+
+  .token {
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .chip { height: 46px; display: block; }
+
+  .token-meta {
+    padding: calc(var(--step) * 1.5) calc(var(--step) * 2);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    line-height: 1.5;
+    color: var(--ink-mute);
+    border-top: 1px solid var(--rule);
+  }
+
+  .token-meta b { display: block; color: var(--ink); font-weight: 400; }
+
+  /* ---------- manifest ---------- */
+
+  .manifest {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .file {
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: 4.2rem minmax(0, 22rem) minmax(0, 1fr);
+    gap: calc(var(--step) * 2);
+    padding: calc(var(--step) * 2) calc(var(--step) * 3);
+    font-size: 0.86rem;
+    align-items: baseline;
+  }
+
+  .file .tag {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .tag.new { color: var(--signal); }
+  .tag.edit { color: var(--warn); }
+  .tag.gone { color: var(--accent); }
+
+  .file .path { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); word-break: break-all; }
+  .file .why { color: var(--ink-mute); }
+
+  @media (max-width: 760px) {
+    .file { grid-template-columns: 4.2rem minmax(0, 1fr); }
+    .file .why { grid-column: 2; }
+  }
+
+  /* ---------- phases ---------- */
+
+  .phases {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 4);
+    border-left: 2px solid var(--rule);
+    padding-left: calc(var(--step) * 4);
+  }
+
+  .phase { position: relative; }
+
+  .phase::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--step) * -4 - 6px);
+    top: 0.55em;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+  }
+
+  .phase h4 {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 400;
+    margin: 0 0 calc(var(--step) * 1);
+    color: var(--ink);
+  }
+
+  .phase h4 span {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-right: calc(var(--step) * 1.5);
+  }
+
+  .phase p { margin: 0; font-size: 0.94rem; }
+
+  .check {
+    margin: calc(var(--step) * 1.5) 0 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-mute);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--step) * 0.75);
+  }
+
+  .check li::before { content: "→ "; color: var(--signal); }
+
+  /* ---------- notes ---------- */
+
+  .note {
+    border-left: 3px solid var(--warn);
+    background: var(--warn-soft);
+    padding: calc(var(--step) * 3);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .note p { color: var(--ink); margin: 0; font-size: 0.92rem; }
+  .note p + p { margin-top: calc(var(--step) * 2); }
+  .note b { font-weight: 620; }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: calc(var(--step) * 4);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-mute);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    a, .rail a { transition: color 120ms ease, border-color 120ms ease; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      Rebuild specification
+      <span>ai-research-agent</span>
+      <span>3 Aug 2026</span>
+    </div>
+    <h1>Take the demo apart, ship the product.</h1>
+    <p class="thesis">
+      The agent works in the happy path and is held together by regex, raw framework
+      events, and a security layer that stops the server from booting. v2 replaces the
+      guesswork with a typed contract: a three-phase graph on Claude Opus 5, a first-class
+      event protocol between server and browser, and an interface built for watching
+      research happen rather than waiting for a wall of text.
+    </p>
+    <div class="masthead-facts">
+      <div><b>Model</b><i>gpt-4o-mini → claude-opus-5</i></div>
+      <div><b>Stack</b><i>LangGraph · Express 5 · Next 15 · React 19</i></div>
+      <div><b>Scope</b><i>Full stack, UI + backend</i></div>
+      <div><b>Runs</b><i>Locally, verified end to end</i></div>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Sections">
+    <ol>
+      <li><a href="#audit"><em>01</em> Audit</a></li>
+      <li><a href="#stance"><em>02</em> Stance</a></li>
+      <li><a href="#backend"><em>03</em> Backend</a></li>
+      <li><a href="#protocol"><em>04</em> Protocol</a></li>
+      <li><a href="#frontend"><em>05</em> Frontend</a></li>
+      <li><a href="#manifest"><em>06</em> Manifest</a></li>
+      <li><a href="#plan"><em>07</em> Execution</a></li>
+      <li><a href="#risks"><em>08</em> Open items</a></li>
+      <li><a href="#verified"><em>09</em> Verified</a></li>
+    </ol>
+  </nav>
+
+  <main class="content">
+
+    <!-- 01 -->
+    <section id="audit">
+      <div class="sec-head"><span class="sec-num">01</span><h2>What the audit found</h2></div>
+      <p>
+        Eight problems, found by reading the code rather than the README. Four of them
+        mean a feature the interface advertises does not actually work.
+      </p>
+
+      <div class="findings">
+        <div class="finding">
+          <span class="sev broken">Won't boot</span>
+          <h4>The server exits on startup</h4>
+          <p>
+            Startup requires <code>JWT_SECRET</code>, <code>MASTER_ENCRYPTION_KEY</code> and
+            <code>KEY_DERIVATION_SALT</code>, then calls <code>process.exit(1)</code>. None
+            of the three exist in <code>.env</code>. The uncommitted security work made local
+            development impossible.
+          </p>
+          <span class="loc">backend/src/index.ts:14–25</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev broken">Silently dead</span>
+          <h4>Citations never reach the UI</h4>
+          <p>
+            The browser calls <code>JSON.parse</code> on the search tool's output and looks for
+            an array of <code>{url, title}</code>. The tool returns a formatted human-readable
+            string. The parse always throws into an empty catch, so the Sources panel is
+            permanently empty.
+          </p>
+          <span class="loc">frontend/src/components/Chat.tsx:102–130 ↔ backend/src/tools/research.ts:86–103</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev broken">Blocks streaming</span>
+          <h4>gzip buffers the event stream</h4>
+          <p>
+            <code>compression()</code> is applied globally and has no filter exempting
+            <code>text/event-stream</code>. Progress events sit in the compressor's buffer, so
+            "real-time" arrives in bursts, or at the very end. There is no
+            <code>flushHeaders</code>, no heartbeat, and no keep-alive against proxy timeouts.
+          </p>
+          <span class="loc">backend/src/index.ts:37 · controllers/agentController.ts:181–208</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev wrong">Fragile</span>
+          <h4>Sources are recovered by regex</h4>
+          <p>
+            The server rebuilds citations by running <code>/URL: (https?:\/\/[^\s]+)/g</code> over
+            tool text and zipping the matches against a second regex for titles. Positional
+            zipping across two independent match arrays mispairs whenever a title contains a
+            hyphen.
+          </p>
+          <span class="loc">backend/src/agents/researchAgent.ts:239–263</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev wrong">Leaks</span>
+          <h4>No cancellation, ever</h4>
+          <p>
+            Closing the tab does not stop the run. The stream loop has no abort signal and no
+            <code>req.on("close")</code> handler, so a cancelled research task keeps calling
+            paid search and model APIs until it finishes talking to a socket nobody is reading.
+          </p>
+          <span class="loc">backend/src/controllers/agentController.ts:195–208</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev wrong">Wrong output</span>
+          <h4>Raw research is streamed as the answer</h4>
+          <p>
+            Every <code>on_chat_model_stream</code> token is appended to the visible message,
+            including the tool-loop model's intermediate chatter. Then
+            <code>on_chat_model_end</code> overwrites the whole message with the last output.
+            The user watches text that is not the answer, then sees it replaced.
+          </p>
+          <span class="loc">frontend/src/components/Chat.tsx:91–143</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev thin">Design debt</span>
+          <h4>Dark mode is declared but not built</h4>
+          <p>
+            <code>globals.css</code> sets dark background and foreground variables under
+            <code>prefers-color-scheme</code>, while every component hard-codes
+            <code>bg-white</code>, <code>text-gray-800</code>, <code>border-gray-200</code>. On a
+            dark OS the result is dark chrome around white cards with unreadable contrast.
+          </p>
+          <span class="loc">frontend/src/app/globals.css:16–21 vs. all components</span>
+        </div>
+
+        <div class="finding">
+          <span class="sev thin">Design debt</span>
+          <h4>Emoji standing in for a design system</h4>
+          <p>
+            🔬 🔍 🧠 🤖 👤 carry the visual identity; three primary gradients compete for
+            attention; the page title is still "Create Next App"; the three feature cards on
+            the empty state are decorative, not clickable. There is no history, no stop, no
+            retry, no export.
+          </p>
+          <span class="loc">frontend/src/app/{layout,page}.tsx · components/*</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section id="stance">
+      <div class="sec-head"><span class="sec-num">02</span><h2>The stance behind v2</h2></div>
+      <div class="stack">
+        <p>
+          Four commitments. Everything downstream is an application of one of them.
+        </p>
+
+        <div class="swap">
+          <div>
+            <span class="swap-label">Today</span>
+            <ul>
+              <li>The browser reverse-engineers LangGraph's internal event shapes.</li>
+              <li>The agent is one tool loop plus a "compress" step that dumps raw findings.</li>
+              <li>Missing keys are fatal; present keys are assumed to work.</li>
+              <li>Progress means three chips labelled with node names.</li>
+            </ul>
+          </div>
+          <div class="after">
+            <span class="swap-label">v2</span>
+            <ul>
+              <li>The server owns a versioned event contract; the browser renders it.</li>
+              <li>Plan → research → synthesize, with sources as typed state, not text.</li>
+              <li>Every capability degrades on its own; the app boots with zero keys.</li>
+              <li>Progress means seeing the questions asked and the sources landing.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div>
+          <h3>Why Claude Opus 5 changes the design, not just the string</h3>
+          <p>
+            Swapping the model name would be a one-line diff. The reason it is worth more is
+            that Opus 5 makes a genuine planning step cheap enough to be worth having: it can
+            decompose a question, run adaptive thinking between tool calls, and write a
+            synthesis that stands on its own instead of a verbatim dump of everything found.
+            The current <em>compressResearch</em> prompt explicitly instructs the model not to
+            summarize — a workaround for a weaker model that now costs quality. v2 replaces it
+            with a real synthesis node and moves effort control to
+            <code>output_config.effort</code>, high for research, low for page summarization.
+          </p>
+          <p>
+            Two constraints come with it: sampling parameters are rejected on Opus 5, and
+            Anthropic has no embeddings endpoint. So the model layer strips
+            <code>temperature</code> before it reaches the wire, and OpenAI stays in the stack
+            for one job only — vectors for Pinecone memory.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section id="backend">
+      <div class="sec-head"><span class="sec-num">03</span><h2>Backend: a graph with a shape</h2></div>
+      <div class="stack">
+        <p>
+          The graph moves from <code>MessagesAnnotation</code> — a bag of messages — to a typed
+          state carrying the plan, accumulated sources, and per-step telemetry. Nodes emit
+          protocol events directly rather than leaving the controller to infer meaning from
+          framework internals.
+        </p>
+
+        <div class="pipeline">
+          <div class="node">
+            <span class="node-name">plan<em>Node 1</em></span>
+            <div class="node-body">
+              <p>
+                One structured call, schema-constrained: restate the question, decide whether
+                memory is worth consulting, and emit two to five concrete sub-questions with the
+                searches that answer them. Cheap, and it gives the interface something to show
+                within a second instead of a spinner.
+              </p>
+              <span class="emits">emits status · plan</span>
+            </div>
+          </div>
+
+          <div class="node">
+            <span class="node-name">research<em>Node 2 · loops</em></span>
+            <div class="node-body">
+              <p>
+                The tool loop, bounded by a search budget rather than a raw message count:
+                <code>web_search</code>, <code>recall_memory</code>, <code>save_memory</code>. The
+                <em>think_tool</em> is deleted — adaptive thinking replaces a tool whose only
+                effect was to burn a turn writing a reflection nobody reads.
+              </p>
+              <p>
+                The search tool returns <code>{ sources: Source[], digest: string }</code>. Sources
+                are appended to state by a reducer that dedupes on normalized URL, so citation
+                numbering is assigned once, server-side, and never re-derived.
+              </p>
+              <span class="emits">emits step · search · source · usage</span>
+            </div>
+          </div>
+
+          <div class="node">
+            <span class="node-name">synthesize<em>Node 3 · streams</em></span>
+            <div class="node-body">
+              <p>
+                The only node whose tokens reach the message body. Writes a structured brief —
+                direct answer first, then evidence, then what remains uncertain — with inline
+                <code>[n]</code> markers bound to the numbering already fixed in state.
+              </p>
+              <span class="emits">emits token · report · done</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3>Provider failover</h3>
+          <p>
+            The agent asks for a <em>role</em>, not a provider. Each role carries a fixed budget
+            and effort, and a dispatcher picks the model behind it: Claude when a key is present,
+            OpenAI when it is not. The graph, the tools, and the prompts are identical either way,
+            so losing the Anthropic key costs quality rather than availability — and the interface
+            says which model answered instead of leaving you to infer it from the output.
+          </p>
+          <p>
+            The failover speaks plain OpenAI-compatible HTTP, so it is not tied to a hosted
+            vendor: pointing <code>OPENAI_BASE_URL</code> at Ollama, LM Studio, or vLLM makes a
+            local model the fallback. Pinning <code>MODEL_PROVIDER</code> to a provider with no key
+            is reported as a misconfiguration rather than silently resolving to the other one.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Chain</th><th>1st</th><th>2nd</th><th>3rd</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="ev">model</td>
+                  <td><p>Claude Opus 5<br><span class="loc">ANTHROPIC_API_KEY</span></p></td>
+                  <td><p>OpenAI or compatible<br><span class="loc">OPENAI_API_KEY / _BASE_URL</span></p></td>
+                  <td><p>Claude Code CLI<br><span class="loc">no key at all</span></p></td>
+                </tr>
+                <tr>
+                  <td class="ev">search</td>
+                  <td><p>Tavily<br><span class="loc">full page text</span></p></td>
+                  <td><p>Brave Search<br><span class="loc">independent index</span></p></td>
+                  <td><p>SearXNG<br><span class="loc">keyless, self-hosted</span></p></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h3>The third rung, and what it forced</h3>
+          <p>
+            The Claude Code CLI is the interesting one: it needs no API key because it borrows a
+            login that already exists. Measurement is what made it usable rather than a novelty —
+            three calls established that every invocation re-sends Claude Code's own tool
+            definitions (~20–35K tokens) and pays ~5s of process startup, so a call costs about
+            $0.15 no matter how short the prompt. Replacing its system prompt makes that
+            <em>worse</em>, not better: it busts the cache and the tool schemas stay.
+          </p>
+          <p>
+            A dozen model calls per run at that price is not a failover, it is a bill. So the
+            provider declares two traits — no tool calling, no bulk summarization — and the graph
+            reads them. That produced <strong>direct research mode</strong>: search each planned
+            sub-question yourself instead of asking a model to drive a tool loop. A run becomes
+            exactly two model calls, and the same mode is what makes local models with weak tool
+            support work at all. The capability limit turned into a feature that outlives it.
+          </p>
+        </div>
+
+        <div>
+          <h3>Keys from the interface</h3>
+          <p>
+            A settings panel documents both chains against live server state and accepts
+            credentials at runtime, so the app can be made useful without editing a file and
+            restarting. The guards are the interesting part: values are held in server memory
+            only — never written to disk, never returned to the client, cleared on restart — and
+            the endpoint is off outside development unless explicitly enabled. Anyone who can
+            reach it could otherwise choose whose account the server spends from.
+          </p>
+        </div>
+
+        <div>
+          <h3>Configuration and degradation</h3>
+          <p>
+            A single zod-validated config module replaces the scattered
+            <code>process.env</code> reads. In development, missing dev-only secrets are
+            generated in memory with a warning rather than killing the process. Each external
+            dependency becomes a capability flag: no Tavily disables search and says so; no
+            Pinecone or OpenAI key disables memory and keeps research working; no Anthropic key
+            returns a single actionable error instead of a stack trace.
+            <code>/healthz</code> reports the resolved capability set, so the browser can show
+            the truth in its status line.
+          </p>
+        </div>
+
+        <div>
+          <h3>Transport</h3>
+          <p>
+            Streaming moves from <code>GET</code> + <code>EventSource</code> to
+            <code>POST</code> + <code>fetch</code> streaming: queries stop appearing in URLs and
+            server logs, length limits disappear, and the client controls abort. Compression is
+            given a filter that skips <code>text/event-stream</code>, headers are flushed
+            immediately, a comment heartbeat goes out every fifteen seconds, and
+            <code>X-Accel-Buffering: no</code> is set for proxies. <code>req.on("close")</code>
+            aborts the graph.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section id="protocol">
+      <div class="sec-head"><span class="sec-num">04</span><h2>The event contract</h2></div>
+      <div class="stack">
+        <p>
+          One versioned union type, exported from the backend and imported by the frontend.
+          Adding a node no longer means teaching the browser a new LangGraph event shape.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Event</th><th>Payload</th><th>What the interface does</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="ev">status</td>
+                <td class="pl">phase, label</td>
+                <td><p>Moves the trace to planning, researching, or writing.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">plan</td>
+                <td class="pl">questions[]</td>
+                <td><p>Renders the sub-questions as a checklist that ticks off as they resolve.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">step</td>
+                <td class="pl">id, kind, label, state</td>
+                <td><p>One row in the trace; transitions running → done → failed in place.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">search</td>
+                <td class="pl">id, query, resultCount</td>
+                <td><p>Shows the literal query issued — the single most useful debugging signal.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">source</td>
+                <td class="pl">n, url, title, domain, snippet</td>
+                <td><p>Appends a numbered source card the moment it is found.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">token</td>
+                <td class="pl">text</td>
+                <td><p>Appends to the answer. Only ever emitted by synthesize.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">report</td>
+                <td class="pl">markdown, sources[]</td>
+                <td><p>Authoritative final state; reconciles against the streamed text.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">usage</td>
+                <td class="pl">input, output, ms</td>
+                <td><p>Footer line: tokens and elapsed time per run.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">error</td>
+                <td class="pl">code, message, retryable</td>
+                <td><p>Inline message with a Retry button when retryable is true.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">done</td>
+                <td class="pl">reason</td>
+                <td><p>Closes the stream: completed, cancelled, or budget_exhausted.</p></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          <p>
+            <b>The rule that keeps it honest:</b> tokens are only emitted from the synthesis
+            node. Everything the research loop says is a <em>step</em>, never message content.
+            That single constraint removes the bug where the answer is written, replaced, and
+            written again.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 -->
+    <section id="frontend">
+      <div class="sec-head"><span class="sec-num">05</span><h2>Frontend: a workspace, not a chat box</h2></div>
+      <div class="stack">
+        <p>
+          Research is not a chat. The output is a document with citations, produced by a
+          process worth watching. The layout follows that: a persistent conversation rail, a
+          reading column for the brief, and a live trace that collapses into a summary once
+          the run finishes.
+        </p>
+
+        <div>
+          <h3>Design tokens</h3>
+          <p>
+            One token layer drives both themes — components never reference a raw color. The
+            palette is drawn from research instruments rather than SaaS blue: a slate ground,
+            ink text, a single indigo accent for interactive state, and semantic teal and amber
+            reserved for source and warning states so accent and status never compete.
+          </p>
+          <div class="tokens">
+            <div class="token">
+              <span class="chip" style="background:#0F1216"></span>
+              <span class="token-meta"><b>--ground</b>slate 950</span>
+            </div>
+            <div class="token">
+              <span class="chip" style="background:#5B6ABF"></span>
+              <span class="token-meta"><b>--accent</b>indigo, interactive only</span>
+            </div>
+            <div class="token">
+              <span class="chip" style="background:#3E8E82"></span>
+              <span class="token-meta"><b>--source</b>teal, citations</span>
+            </div>
+            <div class="token">
+              <span class="chip" style="background:#B98230"></span>
+              <span class="token-meta"><b>--caution</b>amber, degraded</span>
+            </div>
+            <div class="token">
+              <span class="chip" style="background:#6E7581"></span>
+              <span class="token-meta"><b>--muted</b>cool grey</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3>What is new in the interface</h3>
+        </div>
+
+        <div class="swap">
+          <div>
+            <span class="swap-label">Removed</span>
+            <ul>
+              <li>Emoji as iconography, everywhere.</li>
+              <li>Three competing gradient surfaces.</li>
+              <li>Decorative feature cards on the empty state.</li>
+              <li>"Create Next App" as the document title.</li>
+              <li>Client-side source parsing.</li>
+            </ul>
+          </div>
+          <div class="after">
+            <span class="swap-label">Added</span>
+            <ul>
+              <li>Inline SVG icon set on a 24px grid.</li>
+              <li>Full dark theme, OS-aware with a manual override.</li>
+              <li>Suggested questions that populate the composer.</li>
+              <li>Stop, retry, copy, and export-as-markdown.</li>
+              <li>Conversation history persisted in localStorage.</li>
+              <li>Live trace with real queries and source cards.</li>
+              <li>Citation markers that scroll to their source.</li>
+              <li>Capability banner when search or memory is off.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div>
+          <h3>Accessibility and behaviour</h3>
+          <p>
+            The answer region is an <code>aria-live="polite"</code> log, so streaming text is
+            announced without flooding. Trace rows carry state in text and shape, not color
+            alone. Every control is reachable by keyboard with a visible focus ring;
+            <kbd>Enter</kbd> sends, <kbd>Shift+Enter</kbd> newlines,
+            <kbd>Esc</kbd> stops a run. All motion is gated behind
+            <code>prefers-reduced-motion</code>. Markdown gains GFM, so tables and strikethrough
+            in the model's output render instead of leaking syntax.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section id="manifest">
+      <div class="sec-head"><span class="sec-num">06</span><h2>File manifest</h2></div>
+      <div class="stack">
+        <p>
+          The security, observability, and optimization modules already in the tree are left
+          alone except where they block local development.
+        </p>
+
+        <div class="manifest">
+          <div class="file"><span class="tag new">new</span><span class="path">backend/src/config/env.ts</span><span class="why">zod-validated config, capability flags, dev secret generation</span></div>
+          <div class="file"><span class="tag new">new</span><span class="path">backend/src/types/events.ts</span><span class="why">the shared event union — single source of truth</span></div>
+          <div class="file"><span class="tag new">new</span><span class="path">backend/src/models/claude.ts</span><span class="why">Opus 5 factory; strips sampling params, sets effort</span></div>
+          <div class="file"><span class="tag new">new</span><span class="path">backend/src/agents/state.ts</span><span class="why">typed graph state with the source-dedupe reducer</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">backend/src/agents/researchAgent.ts</span><span class="why">plan → research → synthesize; regex extraction deleted</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">backend/src/tools/research.ts</span><span class="why">structured search results; memory made optional; think_tool removed</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">backend/src/prompts/research.ts</span><span class="why">planner + synthesis prompts replace the verbatim-dump prompt</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">backend/src/controllers/agentController.ts</span><span class="why">SSE writer, heartbeat, abort on disconnect</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">backend/src/index.ts</span><span class="why">compression filter, non-fatal config, capability-aware health</span></div>
+          <div class="file"><span class="tag new">new</span><span class="path">frontend/src/app/tokens.css</span><span class="why">the two-theme token layer</span></div>
+          <div class="file"><span class="tag new">new</span><span class="path">frontend/src/components/{Icon,Composer,Trace,SourceCard,Sidebar}.tsx</span><span class="why">the new component set</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">frontend/src/components/Chat.tsx</span><span class="why">typed event reducer; parsing and overwrite bugs removed</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">frontend/src/services/api.ts</span><span class="why">POST + fetch stream + AbortController</span></div>
+          <div class="file"><span class="tag edit">edit</span><span class="path">frontend/src/app/{layout,page,globals}.tsx/css</span><span class="why">real metadata, app shell, theme wiring</span></div>
+          <div class="file"><span class="tag gone">del</span><span class="path">backend/src/utils/vectorStoreUtils.ts</span><span class="why">folded into the memory tool</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section id="plan">
+      <div class="sec-head"><span class="sec-num">07</span><h2>Execution order</h2></div>
+      <div class="stack">
+        <p>
+          Sequenced so the app is runnable after every phase, not only at the end.
+        </p>
+
+        <div class="phases">
+          <div class="phase">
+            <h4><span>Phase 1</span>Make it boot</h4>
+            <p>Config module, non-fatal secrets, compression filter, capability-aware health endpoint.</p>
+            <ul class="check">
+              <li><code>npm run dev</code> starts with the current .env</li>
+              <li><code>/healthz</code> reports capabilities</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <h4><span>Phase 2</span>Model layer</h4>
+            <p>Claude Opus 5 through <code>@langchain/anthropic</code>, sampling parameters stripped, effort per role, OpenAI retained for embeddings only.</p>
+            <ul class="check">
+              <li>a single scripted call returns text and usage</li>
+              <li>no 400 from rejected sampling parameters</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <h4><span>Phase 3</span>Graph and protocol</h4>
+            <p>Typed state, three nodes, structured search tool, event emitter, abort plumbing.</p>
+            <ul class="check">
+              <li><code>curl -N</code> shows plan, search, source, token, done in order</li>
+              <li>killing the client stops the run</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <h4><span>Phase 4</span>Interface</h4>
+            <p>Token layer, app shell, trace, source cards, composer, history, both themes.</p>
+            <ul class="check">
+              <li>light and dark verified by screenshot</li>
+              <li>keyboard path works end to end</li>
+            </ul>
+          </div>
+
+          <div class="phase">
+            <h4><span>Phase 5</span>Run it</h4>
+            <p>Both servers up, a real research question start to finish, screenshots in both themes, README updated to match reality.</p>
+            <ul class="check">
+              <li>citations render and link out</li>
+              <li>stop mid-run leaves usable partial output</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section id="risks">
+      <div class="sec-head"><span class="sec-num">08</span><h2>Open items and assumptions</h2></div>
+      <div class="stack">
+        <div class="note">
+          <p>
+            <b>Neither hosted model key works right now</b> — there is no
+            <code>ANTHROPIC_API_KEY</code>, and the <code>OPENAI_API_KEY</code> returns
+            <em>"You have no credits remaining"</em>. That is what made the third rung worth
+            building: the app now runs a complete research task on the Claude Code CLI with no
+            key at all. What remains unverified is how <em>Claude Opus 5 through the API</em>
+            answers, since the prompts are tuned for it.
+          </p>
+          <p>
+            <b>Node 22.</b> The 1.x LangChain docs state a Node 22 floor while the published
+            <code>engines</code> say 18. An <code>.nvmrc</code> pins 22 rather than betting on
+            which is right.
+          </p>
+          <p>
+            <b>Brave and SearXNG are verified structurally, not live.</b> Both reach their real
+            endpoints and fail correctly; neither has been run with a working credential, so
+            result quality through those backends is untested.
+          </p>
+          <p>
+            <b>LangChain and sampling parameters.</b>
+            <code>ChatAnthropic</code> may send a default <code>temperature</code>, which Opus 5
+            rejects. The model factory verifies the outgoing parameters and, if the framework
+            insists, subclasses it to strip them. Confirmed against the installed package, not
+            assumed.
+          </p>
+          <p>
+            <b>Embedding dimensions.</b> The current code comments claim 1024 dimensions from
+            <code>text-embedding-ada-002</code>, which produces 1536. The existing Pinecone index
+            is therefore likely misconfigured. Memory becomes optional and the embedding model is
+            configurable, so a dimension mismatch degrades memory instead of breaking research.
+          </p>
+          <p>
+            <b>Left alone.</b> Auth, rate limiting, key management, observability, and the load
+            and security test suites stay as they are. They are not in the way once the server
+            boots, and rewriting them is a separate piece of work.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 -->
+    <section id="verified">
+      <div class="sec-head"><span class="sec-num">09</span><h2>What was verified</h2></div>
+      <div class="stack">
+        <p>
+          Recorded after the build, against the running application. Two bugs listed here were
+          found by the verification rather than by the audit — both are in the shipped code path,
+          not the tests.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Check</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="ev">boots</td>
+                <td><p>Server starts on the existing <code>.env</code> and logs its capability set. Previously it called <code>process.exit(1)</code>.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">healthz</td>
+                <td><p>Reports <code>degraded</code> with the specific missing key rather than claiming health.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">sse</td>
+                <td><p><code>curl -N</code> receives <code>open</code> → … → <code>done</code>; closing the client logs <em>“Client disconnected, aborting run”</em>.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">opus 5</td>
+                <td><p>Outgoing request carries <code>thinking: adaptive</code> and <code>output_config.effort</code>, with <code>temperature</code>, <code>top_k</code> and <code>top_p</code> absent — the three Opus 5 rejects.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">client</td>
+                <td><p>Against a replayed protocol stream: 7 trace rows including a failed step, 3 source cards, 5 citation links, GFM table, usage footer, trace collapse, history entry. No console errors.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">themes</td>
+                <td><p>Light and dark verified by screenshot; no horizontal overflow at 390px.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">build</td>
+                <td><p>Backend v2 files typecheck and lint clean; frontend builds at 154 kB first load.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">failover</td>
+                <td><p>With no Anthropic key the server resolves to OpenAI and reports <code>healthy</code> with a failover flag; the UI shows a badge naming the model that answered.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">full run</td>
+                <td><p>Plan → 2 live Tavily searches → 8 real sources → 125 streamed tokens → report with working citations, in 1.2s. Driven through the browser, not just curl.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">cancel</td>
+                <td><p>A completed run logs no disconnect; killing the client mid-run aborts the in-flight search within milliseconds and ends as <code>cancelled</code>.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">stack</td>
+                <td><p>Migrated to LangChain 1.x / LangGraph 1.4.9 / Pinecone 8.2 on Node 22. Typechecks, lints, and builds clean.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">no keys</td>
+                <td><p>A full run on the Claude Code CLI with <strong>no API key of any kind</strong>: 4 planned sub-questions, 4 live searches, 16 real sources, a cited brief. Driven through the browser.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">search chain</td>
+                <td><p>Brave and SearXNG reach their real endpoints and fail with actionable messages — Brave's 422 confirms the request shape and auth header are right.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">runtime keys</td>
+                <td><p>Set, clear, and re-resolve the provider live; bad URLs and unknown fields rejected; the response carries presence booleans and never a value.</p></td>
+              </tr>
+              <tr>
+                <td class="ev">live claude</td>
+                <td><p><strong>Still unverified</strong> — no <code>ANTHROPIC_API_KEY</code>, and the OpenAI account has no credit. The Anthropic path is exercised only at the request-construction level.</p></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3>Found during verification</h3>
+        </div>
+
+        <div class="findings">
+          <div class="finding">
+            <span class="sev broken">Fixed</span>
+            <h4>Every turn was recorded twice</h4>
+            <p>
+              The completed turn was committed to history from inside a React state updater.
+              React double-invokes updaters in development, so each run appended two identical
+              turns. The in-flight turn now lives in a ref and the commit happens outside the
+              updater.
+            </p>
+            <span class="loc">frontend/src/components/Chat.tsx — run()</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev broken">Fixed</span>
+            <h4>Hitting the tool ceiling would have 400'd</h4>
+            <p>
+              When the round-trip ceiling routes straight to synthesis, the transcript still ends
+              in an assistant turn carrying an unexecuted <code>tool_use</code> block — which the
+              API rejects for having no matching result. That trailing turn is now dropped.
+            </p>
+            <span class="loc">backend/src/agents/researchAgent.ts — synthesize</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev wrong">Fixed</span>
+            <h4>Citations rendered as plain text</h4>
+            <p>
+              The first citation pass emitted <code>[[1]](cite:1)</code>. A bracketed link label
+              parses as a nested reference, and react-markdown strips unknown URL schemes — so
+              the markers never became links. They are now <code>[1](#cite-1)</code>.
+            </p>
+            <span class="loc">frontend/src/components/Brief.tsx</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev broken">Fixed</span>
+            <h4>Every POST run cancelled itself instantly</h4>
+            <p>
+              Cancellation listened on <code>req</code>'s <em>close</em>. On a POST that fires when
+              the request <em>body</em> finishes — a few milliseconds in — so every run aborted
+              before it did any work. Invisible until a request got far enough to matter, because
+              the earlier no-key runs failed first anyway. The listener belongs on
+              <code>res</code>.
+            </p>
+            <span class="loc">backend/src/controllers/agentController.ts</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev wrong">Fixed</span>
+            <h4>A billing 429 took three minutes to surface</h4>
+            <p>
+              "No credits remaining" is a 429, and the SDK's default six retries with backoff
+              turned a permanent failure into 179 seconds of silence — then reported it as
+              "rate limiting, try again shortly". Retries are now capped, quota errors are
+              classified as non-retryable, and the provider's own wording is passed through.
+            </p>
+            <span class="loc">backend/src/models/*, agents/researchAgent.ts</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev wrong">Fixed</span>
+            <h4>Token usage always read zero on the failover</h4>
+            <p>
+              Usage was read from Anthropic's <code>response_metadata.usage</code>; OpenAI reports
+              <code>tokenUsage</code> with different field names. Both are normalized by LangChain
+              into <code>usage_metadata</code>, which is now preferred, with the raw shapes as
+              fallbacks.
+            </p>
+            <span class="loc">backend/src/agents/runContext.ts</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev broken">Fixed</span>
+            <h4>Pinecone v8 changed the upsert signature</h4>
+            <p>
+              The stack migration surfaced it: v5 took <code>upsert([records])</code>, v8 takes
+              <code>upsert({records})</code>. The <code>@langchain/pinecone</code> wrapper still
+              pins the client to v5, so it was dropped and memory now talks to the v8 SDK
+              directly — fewer dependencies, and no longer a major version behind.
+            </p>
+            <span class="loc">backend/src/tools/memory.ts</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev wrong">Fixed</span>
+            <h4>A second dev server made the app unreachable</h4>
+            <p>
+              CORS hardcoded ports 3000 and 3001, but another project on this machine already
+              held IPv6 <code>localhost:3000</code>, so the frontend had to move — and was then
+              blocked by its own backend. Development now trusts any loopback origin; production
+              keeps the explicit allowlist.
+            </p>
+            <span class="loc">backend/src/middleware/security.ts</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev thin">Fixed</span>
+            <h4>"Unavailable" was a lie when a provider was pinned</h4>
+            <p>
+              The settings panel marked every earlier option in a chain as unavailable. With
+              <code>MODEL_PROVIDER</code> pinned they were never tried at all. The server now
+              reports whether the choice was pinned, and the panel says "pinned" instead of
+              implying the others failed.
+            </p>
+            <span class="loc">config/env.ts · components/Settings.tsx</span>
+          </div>
+
+          <div class="finding">
+            <span class="sev thin">Fixed</span>
+            <h4>Type-checking the tools exhausted the heap</h4>
+            <p>
+              LangChain's <code>tool()</code> generics expand recursively against a zod schema
+              (TS2589), enough to OOM a whole-project <code>tsc</code>. A narrowed factory type
+              keeps schema inference for the handler and stops the expansion.
+            </p>
+            <span class="loc">backend/src/tools/research.ts</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    Spec written before implementation · section 09 recorded after the local run
+  </footer>
+
+</div>

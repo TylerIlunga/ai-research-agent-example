@@ -1,206 +1,212 @@
-import dotenv from "dotenv";
-
-// Load environment variables first
-dotenv.config();
-
 import { tool } from "@langchain/core/tools";
-import { z } from "zod";
-import { TavilySearch } from "@langchain/tavily";
-import { ChatOpenAI } from "@langchain/openai";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import { HumanMessage } from "@langchain/core/messages";
-import { SummarySchema } from "../types/state";
-import { summarizeWebpagePrompt } from "../prompts/research";
-import { PineconeStore } from "@langchain/pinecone";
-import { OpenAIEmbeddings } from "@langchain/openai";
-import { Pinecone } from "@pinecone-database/pinecone";
+import { z } from "zod";
+import { config } from "../config/env";
+import { logger } from "../utils/logger";
+import { providerTraits, summaryModel, textOf } from "../models";
+import { summarizePagePrompt } from "../prompts/research";
+import type { RunContext } from "../agents/runContext";
+import { getMemory } from "./memory";
+import { runSearch, SEARCH_LABELS, type SearchResult } from "./search";
 
-// Initialize Pinecone for memory storage
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY || "",
-});
+/**
+ * Long pages are condensed before they enter the research context — but only
+ * when the search backend returns full text *and* the provider is cheap enough
+ * to call once per page. On the Claude Code CLI that would be eight extra
+ * process spawns per run, so the excerpt is used instead.
+ */
+async function condense(result: SearchResult, signal: AbortSignal): Promise<string> {
+  const raw = result.raw?.trim();
+  const fallback = result.snippet.trim();
 
-const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX || "");
+  if (!raw || raw.length < 1_200) return fallback || raw || "";
+  if (!providerTraits().bulkSummarization) return fallback || raw.slice(0, 1_200);
 
-const embeddings = new OpenAIEmbeddings({
-  modelName: "text-embedding-ada-002", // Uses 1024 dimensions to match Pinecone index
-});
-
-// Initialize vector store
-let vectorStore: PineconeStore | null = null;
-
-const getVectorStore = async (): Promise<PineconeStore> => {
-  if (!vectorStore) {
-    vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
-      pineconeIndex,
-      namespace: "research-agent",
-    });
-  }
-  return vectorStore;
-};
-
-// Initialize models
-const summarizationModel = new ChatOpenAI({
-  modelName: "gpt-4o-mini",
-  temperature: 0,
-});
-
-// Initialize Tavily search
-const tavilySearch = new TavilySearch({
-  maxResults: 3,
-  includeAnswer: true,
-  includeRawContent: true,
-});
-
-// Helper function to summarize webpage content
-const summarizeWebpageContent = async (
-  webpageContent: string
-): Promise<string> => {
   try {
-    const structuredModel =
-      summarizationModel.withStructuredOutput(SummarySchema);
-
-    const summary = await structuredModel.invoke([
-      new HumanMessage({
-        content: summarizeWebpagePrompt.replace(
-          "{webpage_content}",
-          webpageContent
-        ),
-      }),
-    ]);
-
-    return `<summary>\n${summary.summary}\n</summary>\n\n<key_excerpts>\n${summary.keyExcerpts}\n</key_excerpts>`;
+    const response = await summaryModel().invoke(
+      [new HumanMessage(summarizePagePrompt(raw.slice(0, 40_000)))],
+      { signal }
+    );
+    const summary = textOf(response).trim();
+    return summary || fallback;
   } catch (error) {
-    console.error("Failed to summarize webpage:", error);
-    return webpageContent.length > 1000
-      ? webpageContent.substring(0, 1000) + "..."
-      : webpageContent;
+    logger.warn("Page summarization failed, using excerpt", {
+      url: result.url,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallback || raw.slice(0, 1_200);
   }
-};
+}
 
-// Helper function to process search results
-const processSearchResults = async (results: any[]): Promise<string> => {
-  if (!results || results.length === 0) {
-    return "No valid search results found. Please try different search queries.";
+/**
+ * Runs one search, registers every result as a numbered source, and returns
+ * the digest the model reads. Shared by the agentic tool and the direct
+ * research path, so both produce identical citations and trace events.
+ */
+export async function searchAndRegister(
+  ctx: RunContext,
+  query: string
+): Promise<{ digest: string; found: number }> {
+  if (ctx.searchBudgetRemaining === 0) {
+    return { digest: "Search budget exhausted.", found: 0 };
   }
 
-  let formattedOutput = "Search results:\n\n";
+  const step = ctx.step("search", query);
+  ctx.searchesUsed += 1;
 
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
+  try {
+    const results = await runSearch(query, ctx.signal);
 
-    // Use existing content if no raw content for summarization
-    let content = result.content;
-    if (result.raw_content) {
-      content = await summarizeWebpageContent(result.raw_content);
+    if (results.length === 0) {
+      step.finish("done", "No results");
+      ctx.emit({ type: "search", id: step.id, query, resultCount: 0 });
+      return {
+        digest: `No results for "${query}". Try a different phrasing or a narrower term.`,
+        found: 0,
+      };
     }
 
-    formattedOutput += `\n\n--- SOURCE ${i + 1}: ${result.title} ---\n`;
-    formattedOutput += `URL: ${result.url}\n\n`;
-    formattedOutput += `SUMMARY:\n${content}\n\n`;
-    formattedOutput += "-".repeat(80) + "\n";
-  }
+    const condensed = await Promise.all(
+      results.map(async (result) => ({ result, summary: await condense(result, ctx.signal) }))
+    );
 
-  return formattedOutput;
-};
+    const lines: string[] = [];
+    for (const { result, summary } of condensed) {
+      const source = ctx.addSource({
+        url: result.url,
+        title: result.title,
+        snippet: result.snippet || summary,
+        query,
+      });
+      if (!source) continue;
 
-// Enhanced Tavily search tool
-export const tavilySearchTool = tool(
-  async ({ query }: { query: string }) => {
-    try {
-      // TavilySearch expects an object with a query property
-      const searchResults = await tavilySearch.invoke({ query });
-
-      // Process and format results
-      const processedResults = await processSearchResults(searchResults);
-
-      return processedResults;
-    } catch (error) {
-      console.error("Search error:", error);
-      return `Search failed: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`;
+      lines.push(
+        [`[${source.n}] ${source.title} — ${source.domain}`, `URL: ${source.url}`, summary].join(
+          "\n"
+        )
+      );
     }
-  },
-  {
-    name: "tavily_search",
-    description:
-      "Fetch results from Tavily search API with content summarization. Use this to search for current information on the web.",
-    schema: z.object({
-      query: z.string().describe("A single search query to execute"),
-    }),
-  }
-);
 
-// Thinking tool for reflection
-export const thinkTool = tool(
-  async ({ reflection }: { reflection: string }) => {
-    return `Reflection recorded: ${reflection}`;
-  },
-  {
-    name: "think_tool",
-    description:
-      "Tool for strategic reflection on research progress and decision-making. Use this tool after each search to analyze results and plan next steps systematically.",
-    schema: z.object({
-      reflection: z
-        .string()
-        .describe(
-          "Your detailed reflection on research progress, findings, gaps, and next steps"
-        ),
-    }),
-  }
-);
+    ctx.emit({ type: "search", id: step.id, query, resultCount: lines.length });
+    step.finish("done", `${lines.length} result${lines.length === 1 ? "" : "s"}`);
 
-// Memory tools
-export const saveToMemoryTool = tool(
-  async ({ information }: { information: string }) => {
-    try {
-      const store = await getVectorStore();
-      await store.addDocuments([
-        {
-          pageContent: information,
-          metadata: { source: "agent", timestamp: Date.now() },
-        },
-      ]);
-      return "Information saved to memory successfully";
-    } catch (error) {
-      console.error("Error saving to memory:", error);
-      return "Failed to save information to memory";
+    return {
+      digest: [
+        `Results for "${query}" (via ${SEARCH_LABELS[config.searchProvider]}). Cite these by their bracketed number.`,
+        "",
+        lines.join("\n\n"),
+      ].join("\n"),
+      found: lines.length,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    step.finish("failed", message.slice(0, 140));
+    ctx.emit({ type: "search", id: step.id, query, resultCount: 0 });
+    logger.warn("Search failed", { query, provider: config.searchProvider, error: message });
+    return {
+      digest: `Search for "${query}" failed: ${message}. Continue with other queries.`,
+      found: 0,
+    };
+  }
+}
+
+/**
+ * `tool()` carries deeply conditional generics over its zod schema, and
+ * instantiating them here sends TypeScript into a recursive expansion
+ * (TS2589) severe enough to exhaust the heap on a whole-project `tsc` run.
+ *
+ * This narrower view keeps the part that matters — the handler's input is
+ * still inferred from the schema — while stopping the expansion. These tools
+ * are only ever invoked through `StructuredToolInterface` anyway.
+ */
+type ToolFactory = <Input>(
+  handler: (input: Input) => Promise<string>,
+  fields: { name: string; description: string; schema: z.ZodType<Input> }
+) => StructuredToolInterface;
+
+const defineTool = tool as unknown as ToolFactory;
+
+function buildWebSearchTool(ctx: RunContext): StructuredToolInterface {
+  return defineTool(
+    async ({ query }: { query: string }) => {
+      if (ctx.cancelled) return "Research was cancelled.";
+      const { digest } = await searchAndRegister(ctx, query);
+      return `${digest}\n\nSearches remaining: ${ctx.searchBudgetRemaining}.`;
+    },
+    {
+      name: "web_search",
+      description:
+        "Search the live web. Returns numbered, summarized results with URLs. " +
+        "Use one focused question per call; prefer several narrow searches over one broad one.",
+      schema: z.object({
+        query: z.string().min(2).describe("A single, focused search query"),
+      }),
     }
-  },
-  {
-    name: "save_to_memory",
-    description:
-      "Save important information to long-term memory for future reference",
-    schema: z.object({
-      information: z.string().describe("The information to save to memory"),
-    }),
-  }
-);
+  );
+}
 
-export const retrieveFromMemoryTool = tool(
-  async ({ query }: { query: string }) => {
-    try {
-      const store = await getVectorStore();
-      const results = await store.similaritySearch(query, 3);
-      return JSON.stringify(results.map((doc) => doc.pageContent));
-    } catch (error) {
-      console.error("Error retrieving from memory:", error);
-      return "Failed to retrieve information from memory";
+function buildMemoryTools(ctx: RunContext): StructuredToolInterface[] {
+  const memory = getMemory();
+  if (!memory) return [];
+
+  const recall = defineTool(
+    async ({ query }: { query: string }) => {
+      const step = ctx.step("memory", `Recall: ${query}`);
+      try {
+        const hits = await memory.search(query, 4);
+        step.finish("done", `${hits.length} note${hits.length === 1 ? "" : "s"}`);
+        if (hits.length === 0) return "No relevant notes in memory.";
+        return hits.map((hit, index) => `Note ${index + 1}: ${hit}`).join("\n\n");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        step.finish("failed", message.slice(0, 140));
+        return `Memory lookup failed: ${message}`;
+      }
+    },
+    {
+      name: "recall_memory",
+      description:
+        "Look up notes saved during earlier research sessions. Use once at the start when the " +
+        "topic may have been researched before.",
+      schema: z.object({ query: z.string().describe("What to look for in memory") }),
     }
-  },
-  {
-    name: "retrieve_from_memory",
-    description: "Retrieve relevant information from memory based on the query",
-    schema: z.object({
-      query: z.string().describe("The query to search for in memory"),
-    }),
-  }
-);
+  );
 
-// Export all tools as an array
-export const researchTools = [
-  tavilySearchTool,
-  thinkTool,
-  saveToMemoryTool,
-  retrieveFromMemoryTool,
-];
+  const remember = defineTool(
+    async ({ note }: { note: string }) => {
+      const step = ctx.step("memory", "Save note");
+      try {
+        await memory.save(note, { conversationId: ctx.conversationId });
+        step.finish("done");
+        return "Saved.";
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        step.finish("failed", message.slice(0, 140));
+        return `Could not save note: ${message}`;
+      }
+    },
+    {
+      name: "save_memory",
+      description:
+        "Save a durable, self-contained fact worth recalling in a future session. " +
+        "Use sparingly — not for restating the answer.",
+      schema: z.object({ note: z.string().describe("A single self-contained fact") }),
+    }
+  );
+
+  return [recall, remember];
+}
+
+/**
+ * Tools are built per run so they can close over the run's citation table,
+ * search budget, and abort signal. There is deliberately no `think_tool`:
+ * adaptive thinking already gives the model reflection between tool calls,
+ * and the old tool spent a turn writing text nobody read.
+ */
+export function createResearchTools(ctx: RunContext): StructuredToolInterface[] {
+  const tools: StructuredToolInterface[] = [];
+  if (config.capabilities.webSearch) tools.push(buildWebSearchTool(ctx));
+  tools.push(...buildMemoryTools(ctx));
+  return tools;
+}

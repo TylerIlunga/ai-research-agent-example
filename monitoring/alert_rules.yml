@@ -1,0 +1,373 @@
+# Prometheus alerting rules for AI Research Agent
+
+groups:
+  - name: ai_research_agent_critical
+    interval: 30s
+    rules:
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up{job="ai-research-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "AI Research Agent service is down"
+          description: "The AI Research Agent service has been down for more than 1 minute."
+          runbook_url: "https://docs.company.com/runbooks/service-down"
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(ai_research_agent_errors_total[5m]) / 
+            rate(ai_research_agent_queries_total[5m])
+          ) * 100 > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }}% over the last 5 minutes"
+          runbook_url: "https://docs.company.com/runbooks/high-error-rate"
+
+      # Memory Usage Critical
+      - alert: MemoryUsageCritical
+        expr: ai_research_agent_memory_usage_percentage > 90
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "Critical memory usage"
+          description: "Memory usage is {{ $value }}%"
+          runbook_url: "https://docs.company.com/runbooks/memory-usage"
+
+      # Response Time Critical
+      - alert: ResponseTimeCritical
+        expr: |
+          histogram_quantile(0.95, 
+            rate(ai_research_agent_research_duration_bucket[5m])
+          ) > 60000
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "Critical response time"
+          description: "95th percentile response time is {{ $value }}ms"
+          runbook_url: "https://docs.company.com/runbooks/response-time"
+
+  - name: ai_research_agent_warning
+    interval: 60s
+    rules:
+      # High Response Time
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            rate(ai_research_agent_research_duration_bucket[5m])
+          ) > 30000
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High response time"
+          description: "95th percentile response time is {{ $value }}ms"
+
+      # Low Success Rate
+      - alert: LowSuccessRate
+        expr: |
+          (
+            rate(ai_research_agent_queries_successful_total[5m]) / 
+            rate(ai_research_agent_queries_total[5m])
+          ) * 100 < 95
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "Low success rate"
+          description: "Success rate is {{ $value }}%"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: ai_research_agent_memory_usage_percentage > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: ai_research_agent_cpu_usage_percentage > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+  - name: ai_research_agent_external_apis
+    interval: 60s
+    rules:
+      # OpenAI API Down
+      - alert: OpenAIAPIDown
+        expr: probe_success{instance="https://api.openai.com/v1/chat/completions"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: openai-api
+        annotations:
+          summary: "OpenAI API is unreachable"
+          description: "OpenAI API has been unreachable for more than 3 minutes"
+
+      # Tavily API Down
+      - alert: TavilyAPIDown
+        expr: probe_success{instance="https://api.tavily.com/search"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: tavily-api
+        annotations:
+          summary: "Tavily API is unreachable"
+          description: "Tavily API has been unreachable for more than 3 minutes"
+
+      # Pinecone API Down
+      - alert: PineconeAPIDown
+        expr: probe_success{instance="https://api.pinecone.io/health"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: pinecone-api
+        annotations:
+          summary: "Pinecone API is unreachable"
+          description: "Pinecone API has been unreachable for more than 3 minutes"
+
+      # High External API Error Rate
+      - alert: HighExternalAPIErrorRate
+        expr: |
+          rate(ai_research_agent_external_api_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High external API error rate"
+          description: "External API error rate is {{ $value }} errors/sec"
+
+  - name: ai_research_agent_business
+    interval: 300s
+    rules:
+      # Low User Satisfaction
+      - alert: LowUserSatisfaction
+        expr: ai_research_agent_user_satisfaction_score < 3.5
+        for: 30m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "Low user satisfaction score"
+          description: "User satisfaction score is {{ $value }}/5"
+
+      # High Cost Per Query
+      - alert: HighCostPerQuery
+        expr: |
+          rate(ai_research_agent_cost_total[1h]) / 
+          rate(ai_research_agent_queries_total[1h]) > 0.50
+        for: 1h
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High cost per query"
+          description: "Cost per query is ${{ $value }}"
+
+      # Unusual Token Usage
+      - alert: UnusualTokenUsage
+        expr: |
+          rate(ai_research_agent_tokens_used_total[1h]) > 
+          1.5 * rate(ai_research_agent_tokens_used_total[24h] offset 1d)
+        for: 1h
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "Unusual token usage pattern"
+          description: "Token usage is 50% higher than usual"
+
+      # Low Research Completion Rate
+      - alert: LowResearchCompletionRate
+        expr: |
+          (
+            rate(ai_research_agent_research_completed_total[1h]) / 
+            rate(ai_research_agent_research_started_total[1h])
+          ) * 100 < 85
+        for: 1h
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "Low research completion rate"
+          description: "Research completion rate is {{ $value }}%"
+
+  - name: ai_research_agent_security
+    interval: 60s
+    rules:
+      # High Rate Limit Violations
+      - alert: HighRateLimitViolations
+        expr: rate(ai_research_agent_rate_limit_violations_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High rate of rate limit violations"
+          description: "{{ $value }} rate limit violations per second"
+
+      # Authentication Failures
+      - alert: HighAuthenticationFailures
+        expr: rate(ai_research_agent_auth_failures_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value }} authentication failures per second"
+
+      # Potential Security Breach
+      - alert: PotentialSecurityBreach
+        expr: |
+          rate(ai_research_agent_security_events_total{severity="critical"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "Potential security breach detected"
+          description: "Critical security events detected"
+          runbook_url: "https://docs.company.com/runbooks/security-breach"
+
+  - name: ai_research_agent_data_quality
+    interval: 300s
+    rules:
+      # Low Source Quality
+      - alert: LowSourceQuality
+        expr: |
+          rate(ai_research_agent_low_quality_sources_total[1h]) / 
+          rate(ai_research_agent_sources_found_total[1h]) > 0.3
+        for: 1h
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "High rate of low-quality sources"
+          description: "{{ $value | humanizePercentage }} of sources are low quality"
+
+      # Prompt Injection Attempts
+      - alert: PromptInjectionAttempts
+        expr: rate(ai_research_agent_prompt_injection_attempts_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-research-agent
+        annotations:
+          summary: "Prompt injection attempts detected"
+          description: "{{ $value }} prompt injection attempts per second"
+
+  - name: ai_research_agent_infrastructure
+    interval: 60s
+    rules:
+      # Disk Space Low
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!="tmpfs"} / 
+            node_filesystem_size_bytes{fstype!="tmpfs"}
+          ) * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is {{ $value }}% full"
+
+      # High Network Traffic
+      - alert: HighNetworkTraffic
+        expr: |
+          rate(node_network_receive_bytes_total[5m]) + 
+          rate(node_network_transmit_bytes_total[5m]) > 100000000
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "High network traffic"
+          description: "Network traffic is {{ $value | humanizeBytes }}/sec"
+
+      # Container Restart Loop
+      - alert: ContainerRestartLoop
+        expr: increase(ai_research_agent_container_restarts_total[1h]) > 5
+        for: 1h
+        labels:
+          severity: critical
+          service: infrastructure
+        annotations:
+          summary: "Container restart loop detected"
+          description: "Container has restarted {{ $value }} times in the last hour"
+
+  - name: ai_research_agent_sla
+    interval: 300s
+    rules:
+      # SLA Breach - Availability
+      - alert: SLAAvailabilityBreach
+        expr: |
+          (
+            avg_over_time(up{job="ai-research-agent"}[24h])
+          ) < 0.999
+        for: 1h
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "SLA availability breach"
+          description: "Service availability is {{ $value | humanizePercentage }} (SLA: 99.9%)"
+
+      # SLA Breach - Response Time
+      - alert: SLAResponseTimeBreach
+        expr: |
+          histogram_quantile(0.95, 
+            avg_over_time(
+              ai_research_agent_research_duration_bucket[24h]
+            )
+          ) > 45000
+        for: 1h
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "SLA response time breach"
+          description: "95th percentile response time is {{ $value }}ms (SLA: 45s)"
+
+      # SLA Breach - Error Rate
+      - alert: SLAErrorRateBreach
+        expr: |
+          (
+            avg_over_time(
+              ai_research_agent:error_rate_by_type_5m[24h]
+            )
+          ) > 0.01
+        for: 1h
+        labels:
+          severity: critical
+          service: ai-research-agent
+        annotations:
+          summary: "SLA error rate breach"
+          description: "Error rate is {{ $value | humanizePercentage }} (SLA: 1%)"
