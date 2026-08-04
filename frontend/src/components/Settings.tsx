@@ -68,7 +68,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 
 /**
  * The Anthropic slot is a tier, not a fixed model — `ANTHROPIC_MODEL` selects
- * between Fable 5, Opus 5 and Sonnet 5. Name whichever one the server actually
+ * between Opus 5 and Sonnet 5. Name whichever one the server actually
  * loaded rather than a constant that goes stale the first time it is changed.
  */
 function anthropicLabel(health: Health): string {

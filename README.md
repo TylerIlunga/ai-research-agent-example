@@ -40,19 +40,18 @@ The v1 → v2 jump is the one the two videos show. The concrete differences:
 
 ### Model tiers
 
-The agent asks for a **role**, not a model. All three current Claude tiers take the identical request shape — adaptive thinking plus `output_config.effort`, no sampling parameters — so switching between them is one line in `.env` and no code change at all. Each was verified against this app's exact parameter shape.
+The agent asks for a **role**, not a model. Opus 5 and Sonnet 5 take the identical request shape — adaptive thinking plus `output_config.effort`, no sampling parameters — so switching between them is one line in `.env` and no code change at all. Both were verified against this app's exact parameter shape.
 
 | `ANTHROPIC_MODEL` | Input / Output per MTok | When it's the right pick |
 | --- | --- | --- |
-| `claude-fable-5` | $10 / $50 | Deepest reasoning and longest-horizon runs. Requires 30-day data retention — it is not available under zero-retention. |
-| `claude-opus-5` | $5 / $25 | The default. What the prompts were written and tuned against. |
+| `claude-opus-5` | $5 / $25 | The default, and what the prompts were written and tuned against. Deepest reasoning and the best results on long agentic runs. |
 | `claude-sonnet-5` | $2 / $10 *(intro rate through 2026-08-31; $3 / $15 after)* | Local development. A full run costs roughly 2.5× less than Opus 5 with the agentic tool loop intact. |
 
 A measured run — *"What is QUIC and why was it created?"* — on Sonnet 5: 2 searches, 8 sources, 8 citations, a 4,519-character brief, 64s, 22.3K in / 3.0K out. About $0.075, against roughly $0.186 for the same run on Opus 5.
 
 `claude-haiku-4-5` is deliberately **not** in that table. It is cheaper still, but it predates adaptive thinking and rejects both parameters `models/claude.ts` injects, so it would need per-model-family branching rather than a config change.
 
-> **Known gap:** Fable 5 and Opus 5 can decline a request with `stop_reason: "refusal"` rather than an error. The agent does not special-case that yet — a refusal currently surfaces as an empty response rather than a clear message.
+> **Known gap:** Opus 5 can decline a request with `stop_reason: "refusal"` rather than an error. The agent does not special-case that yet — a refusal currently surfaces as an empty response rather than a clear message.
 
 ## What it does
 
@@ -200,7 +199,7 @@ At minimum, set one model provider — or none at all, if the `claude` CLI is in
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...          # preferred
-ANTHROPIC_MODEL=claude-sonnet-5       # or claude-opus-5 / claude-fable-5
+ANTHROPIC_MODEL=claude-opus-5         # or claude-sonnet-5 for cheaper local runs
 # or, as failovers:
 OPENAI_API_KEY=sk-...
 # or nothing: MODEL_PROVIDER=claude-code
