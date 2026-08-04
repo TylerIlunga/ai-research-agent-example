@@ -4,11 +4,9 @@ A research agent that plans, searches, and writes a cited brief — built with L
 
 ## Demo
 
-**v2 — the current interface.** The plan, the live trace, and sources landing one at a time, from a single unedited run on Claude Sonnet 5:
+**v2 — the current interface**, one unedited run on Claude Sonnet 5: the plan, the live trace, sources landing one at a time, the streamed brief with clickable citations, the failover panel, and dark mode.
 
-![The v2 interface mid-run: sub-questions, the trace of issued queries, and sources appearing as they are found](demo-v2.gif)
-
-▶ **[Watch the full 113-second run — `demo-v2.mp4`](demo-v2.mp4)** · also shows the streamed brief, clickable citations, the failover panel, and dark mode.
+<!-- Paste the user-attachments URL for demo-v2.mp4 on the line below to embed it. -->
 
 **v1 — the original**, for comparison. Same product idea, built against Claude 4 Sonnet and Gemini 2.5 Pro:
 
