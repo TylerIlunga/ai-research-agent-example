@@ -264,7 +264,7 @@ export function createAdaptiveRateLimiter() {
           return `ip_${req.ip}`;
         }
       },
-      onLimitReached: (req, _identifier) => {
+      onLimitReached: (req, identifier) => {
         console.warn('Rate limit exceeded:', {
           identifier,
           path: req.path,
@@ -390,6 +390,7 @@ export function cleanupRateLimitData() {
 }
 
 // Schedule cleanup every hour
-setInterval(cleanupRateLimitData, 60 * 60 * 1000);
+// unref: a maintenance timer must not hold the process (or jest) open.
+setInterval(cleanupRateLimitData, 60 * 60 * 1000).unref();
 
 export { ExternalApiLimiter };

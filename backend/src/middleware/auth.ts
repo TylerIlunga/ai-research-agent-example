@@ -87,7 +87,7 @@ export class JWTManager {
         permissions: user.permissions,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
     );
 
     const refreshToken = jwt.sign(
@@ -96,7 +96,7 @@ export class JWTManager {
         sessionId,
       },
       JWT_REFRESH_SECRET,
-      { expiresIn: JWT_REFRESH_EXPIRES_IN }
+      { expiresIn: JWT_REFRESH_EXPIRES_IN } as jwt.SignOptions
     );
 
     return { accessToken, refreshToken };
@@ -426,4 +426,5 @@ export const authenticate = (req: AuthenticatedRequest, res: Response, next: Nex
 };
 
 // Cleanup expired sessions periodically
-setInterval(SessionManager.cleanupExpiredSessions, 60 * 60 * 1000); // Every hour
+// unref: a maintenance timer must not hold the process (or jest) open.
+setInterval(SessionManager.cleanupExpiredSessions, 60 * 60 * 1000).unref(); // Every hour

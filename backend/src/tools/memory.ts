@@ -5,11 +5,43 @@ import { config } from "../config/env";
 import { logger } from "../utils/logger";
 
 export interface Memory {
-  search(query: string, k: number): Promise<string[]>;
-  save(text: string, metadata: Record<string, string>): Promise<void>;
+  search(query: string, k: number, signal?: AbortSignal): Promise<string[]>;
+  save(text: string, metadata: Record<string, string>, signal?: AbortSignal): Promise<void>;
 }
 
 let cached: Memory | null | undefined;
+
+const MEMORY_TIMEOUT_MS = 15_000;
+
+/**
+ * Neither the Pinecone v8 client nor the embeddings SDK accepts an
+ * AbortSignal, so a black-holed connection would otherwise hold the agent
+ * loop — and the SSE response behind it — open indefinitely, and pressing
+ * Stop would not release it. Racing the call against the run's signal plus a
+ * hard deadline unblocks the run; the underlying request is left to die on
+ * its own, which is fine for an optional subsystem.
+ */
+function bounded<T>(work: Promise<T>, what: string, signal?: AbortSignal): Promise<T> {
+  const limit = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(MEMORY_TIMEOUT_MS)])
+    : AbortSignal.timeout(MEMORY_TIMEOUT_MS);
+
+  return new Promise<T>((resolve, reject) => {
+    const fail = () => reject(new Error(`${what} timed out or was cancelled`));
+    if (limit.aborted) return fail();
+    limit.addEventListener("abort", fail, { once: true });
+    work.then(
+      (value) => {
+        limit.removeEventListener("abort", fail);
+        resolve(value);
+      },
+      (error) => {
+        limit.removeEventListener("abort", fail);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+  });
+}
 
 /**
  * Drops the memoized store so the next call rebuilds against new credentials.
@@ -54,33 +86,41 @@ export function getMemory(): Memory | null {
     });
 
     cached = {
-      async search(query, k) {
-        const vector = await embeddings.embedQuery(query);
-        const response = await index.query({
-          vector,
-          topK: k,
-          includeMetadata: true,
-        });
+      async search(query, k, signal) {
+        const response = await bounded(
+          (async () => {
+            const vector = await embeddings.embedQuery(query);
+            return index.query({ vector, topK: k, includeMetadata: true });
+          })(),
+          "Memory lookup",
+          signal
+        );
 
         return (response.matches ?? [])
           .map((match) => match.metadata?.text)
           .filter((text): text is string => typeof text === "string" && text.length > 0);
       },
 
-      async save(text, metadata) {
-        const [vector] = await embeddings.embedDocuments([text]);
-        // v8 takes `{ records }`; v5 took a bare array.
-        await index.upsert({
-          records: [
-            {
-              id: crypto.randomUUID(),
-              values: vector,
-              // Pinecone metadata is flat; the note itself rides along so a
-              // query can return it without a second lookup.
-              metadata: { ...metadata, text, savedAt: new Date().toISOString() },
-            },
-          ],
-        });
+      async save(text, metadata, signal) {
+        await bounded(
+          (async () => {
+            const [vector] = await embeddings.embedDocuments([text]);
+            // v8 takes `{ records }`; v5 took a bare array.
+            await index.upsert({
+              records: [
+                {
+                  id: crypto.randomUUID(),
+                  values: vector,
+                  // Pinecone metadata is flat; the note itself rides along so a
+                  // query can return it without a second lookup.
+                  metadata: { ...metadata, text, savedAt: new Date().toISOString() },
+                },
+              ],
+            });
+          })(),
+          "Memory save",
+          signal
+        );
       },
     };
   } catch (error) {

@@ -230,8 +230,8 @@ export function securityLogger(req: Request, res: Response, next: NextFunction) 
   }
   
   // Override res.end to log response information
-  const originalEnd = res.end;
-  res.end = function(chunk?: any, encoding?: any) {
+  const originalEnd = res.end.bind(res);
+  res.end = function (chunk?: unknown, encoding?: BufferEncoding, cb?: () => void) {
     const duration = Date.now() - startTime;
     
     // Log failed requests
@@ -252,8 +252,8 @@ export function securityLogger(req: Request, res: Response, next: NextFunction) 
       });
     }
     
-    originalEnd.call(this, chunk, encoding);
-  };
+    return originalEnd(chunk, encoding as BufferEncoding, cb);
+  } as typeof res.end;
   
   next();
 }
@@ -471,4 +471,4 @@ setInterval(() => {
       ipRequestCounts.delete(ip);
     }
   }
-}, 5 * 60 * 1000); // Every 5 minutes
+}, 5 * 60 * 1000).unref(); // Every 5 minutes — unref so it cannot hold the process open

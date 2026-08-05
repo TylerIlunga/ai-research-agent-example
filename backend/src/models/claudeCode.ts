@@ -102,10 +102,19 @@ export class ClaudeCode extends SimpleChatModel {
   ): Promise<void> {
     const { system, prompt } = this.render(messages);
 
+    // The CLI must authenticate with the *local login*, not whatever key the
+    // server holds: an inherited ANTHROPIC_API_KEY takes precedence inside the
+    // CLI, so an invalid or revoked key would break the exact failover that is
+    // supposed to rescue it.
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+
     return new Promise((resolve, reject) => {
       const child = spawn(config.claudeCode.bin, this.args(system, streaming), {
         signal,
         stdio: ["pipe", "pipe", "pipe"],
+        env,
       });
 
       const timer = setTimeout(() => {

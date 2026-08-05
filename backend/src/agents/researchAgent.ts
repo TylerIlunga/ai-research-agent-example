@@ -93,7 +93,7 @@ export function closeDanglingToolCalls(transcript: BaseMessage[]): ToolMessage[]
  * The planner replies with JSON. Models occasionally wrap it in a fence or add
  * a sentence; pull the first balanced object out rather than trusting the shape.
  */
-function extractPlan(text: string): { objective: string; questions: string[] } | null {
+export function extractPlan(text: string): { objective: string; questions: string[] } | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) return null;
@@ -324,6 +324,7 @@ export function buildResearchGraph(ctx: RunContext, tools: StructuredToolInterfa
     );
 
     let report = "";
+    let stopReason: string | undefined;
     try {
       const stream = await synthesisModel().stream([system, ...transcript, instruction], {
         signal: ctx.signal,
@@ -333,6 +334,8 @@ export function buildResearchGraph(ctx: RunContext, tools: StructuredToolInterfa
         if (ctx.cancelled) break;
         // Usage rides a single chunk near the end of the stream, not every one.
         if (chunk.usage_metadata) ctx.recordUsage(chunk);
+        const meta = chunk.response_metadata as { stop_reason?: string } | undefined;
+        if (meta?.stop_reason) stopReason = meta.stop_reason;
         const text = textOf(chunk);
         if (!text) continue;
         report += text;
@@ -342,6 +345,18 @@ export function buildResearchGraph(ctx: RunContext, tools: StructuredToolInterfa
       if (ctx.cancelled) throw new Cancelled();
       step.finish("failed");
       throw error;
+    }
+
+    // Opus 5 / Sonnet 5 safety classifiers decline with a *successful*
+    // response: HTTP 200, `stop_reason: "refusal"`, empty or partial content.
+    // Without this check that surfaces as an empty brief marked complete.
+    if (!ctx.cancelled && stopReason === "refusal") {
+      step.finish("failed", "Declined by the model's safety classifiers");
+      const refusal = new Error(
+        "The model declined this request (safety classifiers). Rephrase the question and try again."
+      );
+      refusal.name = "ModelRefusal";
+      throw refusal;
     }
 
     step.finish("done");
@@ -483,6 +498,7 @@ function isBilling(message: string): boolean {
 
 function classify(error: unknown): string {
   if (error instanceof Error && error.name === "MissingCredentials") return "missing_credentials";
+  if (error instanceof Error && error.name === "ModelRefusal") return "refused";
   const message = error instanceof Error ? error.message : String(error);
   const status = statusOf(error);
 
@@ -494,6 +510,8 @@ function classify(error: unknown): string {
 }
 
 function isRetryable(error: unknown): boolean {
+  // Re-sending the same question to the same classifiers will not help.
+  if (error instanceof Error && error.name === "ModelRefusal") return false;
   const message = error instanceof Error ? error.message : String(error);
   if (isBilling(message)) return false;
   const status = statusOf(error);
@@ -510,6 +528,7 @@ function friendly(message: string, provider: string): string {
   const first = message.split("\n")[0].trim();
 
   if (message.includes("API_KEY")) return message;
+  if (message.includes("safety classifiers")) return message;
   if (isBilling(message)) {
     return `The ${provider} account is out of credit or quota: ${first}`;
   }

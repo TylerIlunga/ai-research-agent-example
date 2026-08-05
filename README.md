@@ -29,6 +29,7 @@ Three passes, three different sets of tools. This is the honest lineage, because
 | **v1** | Claude 4 Sonnet + Gemini 2.5 Pro | Worked, but took many iterations and a lot of manual debugging. One undifferentiated tool loop, untyped events, chat-bubble UI. |
 | **v2** | Claude Opus 5 | The agent graph, the typed event protocol, and the interface — planned in an [HTML spec](docs/v2-spec.html) and implemented in one pass. |
 | **v2.1** | Claude Opus 5 | Stack migration to LangChain 1.x, a six-lens review pass, provider/search failover chains, runtime key entry, and per-tier model selection. |
+| **v2.2** | Claude Fable 5 | Hardening pass: multi-lens review with adversarial verification, a real test suite (63 unit tests) and honest CI, refusal handling, search-budget failure semantics, prompt-injection hardening of the source digest, and a fix that keeps the keyless CLI failover working when a revoked API key is still present. |
 
 The v1 → v2 jump is the one the two videos show. The concrete differences:
 
@@ -55,7 +56,7 @@ A measured run — *"What is QUIC and why was it created?"* — on Sonnet 5: 2 s
 
 `claude-haiku-4-5` is deliberately **not** in that table. It is cheaper still, but it predates adaptive thinking and rejects both parameters `models/claude.ts` injects, so it would need per-model-family branching rather than a config change.
 
-> **Known gap:** Opus 5 can decline a request with `stop_reason: "refusal"` rather than an error. The agent does not special-case that yet — a refusal currently surfaces as an empty response rather than a clear message.
+Opus 5 and Sonnet 5 can decline a request with `stop_reason: "refusal"` rather than an error — an HTTP 200 with empty content. The synthesis node detects that and surfaces a clear, non-retryable error instead of presenting an empty brief as the answer.
 
 ## What it does
 
@@ -250,17 +251,16 @@ Current as of the last dependency pass:
 | `@langchain/openai` | 1.5.5 |
 | `@pinecone-database/pinecone` | 8.2.0 |
 | `langsmith` | 0.8.9 |
-| Next.js / React | 16 / 19 |
+| Next.js / React | 15.3 / 19 |
 
 `@langchain/pinecone` is deliberately absent: it still pins the Pinecone client to v5, so memory talks to the v8 SDK directly instead (`backend/src/tools/memory.ts`).
 
 ## Development
 
-- **Backend** — `tsx watch`, no build step. `npm run lint`.
-- **Frontend** — Next.js with Turbopack. `npm run lint`.
+- **Backend** — `tsx watch`, no build step. `npm run lint`, `npm test` (jest + ts-jest — unit tests for the graph helpers, citation dedup, provider resolution, and search-budget semantics), `npx tsc -p tsconfig.check.json --noEmit` for the typecheck CI runs.
+- **Frontend** — Next.js with Turbopack. `npm run lint`, `npm run build`.
+- **CI** — `.github/workflows/ci-cd.yml` runs exactly those commands on every push and PR.
 - **Tuning** — `SEARCH_BUDGET` and `RESULTS_PER_SEARCH` in `backend/.env` are the main cost and latency levers.
-
-> **Known gap:** the test suite under `backend/src/__tests__` predates the v2 rebuild and imports exports that no longer exist, so `npm test` and the CI workflow do not currently pass.
 
 ---
 

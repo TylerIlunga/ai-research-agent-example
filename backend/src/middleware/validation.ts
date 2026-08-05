@@ -329,12 +329,33 @@ export function validateContentType(allowedTypes: string[]) {
   };
 }
 
+/**
+ * RFC 1918 / loopback / link-local check. The validator library has no
+ * `isPrivateIP` — the previous call to it would have thrown a TypeError on
+ * every request in production, turning this middleware into a global 500.
+ */
+function isPrivateIP(ip: string): boolean {
+  const v4 = ip.replace(/^::ffff:/i, '');
+  if (v4 === '127.0.0.1' || ip === '::1') return true;
+  const octets = v4.split('.').map(Number);
+  if (octets.length === 4 && octets.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = octets;
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254)
+    );
+  }
+  return /^f[cd]|^fe80:/i.test(ip);
+}
+
 // IP validation and geoblocking
 export function validateClientIP(req: Request, res: Response, next: NextFunction) {
   const clientIP = req.ip || req.connection.remoteAddress || '';
-  const blockedCountries = process.env.BLOCKED_COUNTRIES?.split(',') || [];
   const blockedIPs = process.env.BLOCKED_IPS?.split(',') || [];
-  
+
   // Check if IP is explicitly blocked
   if (blockedIPs.includes(clientIP)) {
     return res.status(403).json({
@@ -342,17 +363,17 @@ export function validateClientIP(req: Request, res: Response, next: NextFunction
       code: 'IP_BLOCKED',
     });
   }
-  
+
   // Basic validation for private/localhost IPs in production
   if (process.env.NODE_ENV === 'production') {
-    if (validator.isPrivateIP(clientIP) && !process.env.ALLOW_PRIVATE_IPS) {
+    if (isPrivateIP(clientIP) && !process.env.ALLOW_PRIVATE_IPS) {
       return res.status(403).json({
         error: 'Private IP addresses not allowed',
         code: 'PRIVATE_IP_BLOCKED',
       });
     }
   }
-  
+
   next();
 }
 

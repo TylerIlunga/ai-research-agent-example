@@ -12,13 +12,31 @@ function newConversation(): Conversation {
   return { id: uuidv4(), title: "New research", createdAt: now, updatedAt: now, turns: [] };
 }
 
+/**
+ * Shape-checks one stored entry. localStorage survives schema changes and is
+ * writable by anything on the origin, so `JSON.parse` succeeding proves
+ * nothing — an entry missing `turns` would crash the first `.turns.length`
+ * on every load, with the bad value still stored.
+ */
+function isConversation(value: unknown): value is Conversation {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<Conversation>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.createdAt === "number" &&
+    typeof item.updatedAt === "number" &&
+    Array.isArray(item.turns)
+  );
+}
+
 function load(): Conversation[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as Conversation[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isConversation) : [];
   } catch {
     return [];
   }

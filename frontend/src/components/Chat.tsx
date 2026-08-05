@@ -125,6 +125,8 @@ export default function Chat() {
   const [live, setLive] = useState<{ conversationId: string; turn: Turn } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  /** Which conversation the in-flight run belongs to — for delete handling. */
+  const liveConversationRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pendingTokens = useRef<string>("");
   const frame = useRef<number | null>(null);
@@ -140,6 +142,9 @@ export default function Chat() {
     fetchHealth(controller.signal).then(setHealth);
     return () => controller.abort();
   }, []);
+
+  // Leaving the page must not leave the server researching for nobody.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const turns = useMemo(() => {
     const stored = active?.turns ?? [];
@@ -164,10 +169,22 @@ export default function Chat() {
     abortRef.current?.abort();
   }, []);
 
+  const deleteConversation = useCallback(
+    (id: string) => {
+      // Deleting the conversation a run is streaming into would orphan the
+      // run: invisible (its conversation is gone from the list) yet still
+      // burning searches, with its result discarded on arrival. Stop it first.
+      if (liveConversationRef.current === id) abortRef.current?.abort();
+      remove(id);
+    },
+    [remove]
+  );
+
   const run = useCallback(
     async (question: string) => {
       const conversationId = activeId ?? startNew();
       turnRef.current = emptyTurn(question);
+      liveConversationRef.current = conversationId;
       setLive({ conversationId, turn: turnRef.current });
 
       const controller = new AbortController();
@@ -243,6 +260,7 @@ export default function Chat() {
         const trailing = pendingTokens.current;
         pendingTokens.current = "";
         abortRef.current = null;
+        liveConversationRef.current = null;
 
         if (turnRef.current) {
           let finished: Turn = {
@@ -259,10 +277,22 @@ export default function Chat() {
           } else if (finished.status === "running") {
             // Check the reducer's terminal status first: a `done` frame that
             // landed just before Stop was pressed must not be relabelled.
-            finished = {
-              ...finished,
-              status: controller.signal.aborted ? "cancelled" : "complete",
-            };
+            //
+            // Still "running" without an abort means the stream closed without
+            // ever sending `done` — a crashed or restarted server, not a
+            // finished run. Labelling that "complete" would present a
+            // half-written brief as the answer.
+            finished = controller.signal.aborted
+              ? { ...finished, status: "cancelled" }
+              : {
+                  ...finished,
+                  status: "failed",
+                  error: {
+                    code: "transport",
+                    message: "The connection closed before the run finished.",
+                    retryable: true,
+                  },
+                };
           }
 
           turnRef.current = null;
@@ -301,7 +331,7 @@ export default function Chat() {
             stop();
             startNew();
           }}
-          onDelete={remove}
+          onDelete={deleteConversation}
           onClose={() => setSidebarOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -329,7 +359,7 @@ export default function Chat() {
                 startNew();
                 setSidebarOpen(false);
               }}
-              onDelete={remove}
+              onDelete={deleteConversation}
               onClose={() => setSidebarOpen(false)}
               onOpenSettings={() => {
                 setSidebarOpen(false);

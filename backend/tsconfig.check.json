@@ -1,4 +1,18 @@
 {
+  // The CI typecheck. Scope: everything the running server can actually load,
+  // plus the maintained test suite (which ts-jest also type-checks on run).
+  //
+  // Excluded because nothing imports them and they have never compiled:
+  // observability/, optimization/, middleware/keyManagement.ts, and the
+  // pre-rebuild src/tests suite. They are candidates for deletion, not for
+  // silently gating CI.
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "src/__tests__", "src/tests"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/tests",
+    "src/observability",
+    "src/optimization",
+    "src/middleware/keyManagement.ts"
+  ]
 }

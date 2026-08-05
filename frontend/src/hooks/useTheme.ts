@@ -21,9 +21,16 @@ export function useTheme() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY) as ThemeChoice | null;
-    if (stored === "light" || stored === "dark" || stored === "system") {
-      setChoice(stored);
+    // localStorage access itself throws when storage is blocked (embedded
+    // contexts, some privacy modes) — the theme falls back to "system"
+    // rather than taking the app down.
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY) as ThemeChoice | null;
+      if (stored === "light" || stored === "dark" || stored === "system") {
+        setChoice(stored);
+      }
+    } catch {
+      // Preference simply won't persist.
     }
     setHydrated(true);
   }, []);
@@ -36,7 +43,11 @@ export function useTheme() {
     } else {
       root.setAttribute("data-theme", choice);
     }
-    window.localStorage.setItem(STORAGE_KEY, choice);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, choice);
+    } catch {
+      // Same: the visual change applied; persistence is best-effort.
+    }
   }, [choice, hydrated]);
 
   /** Cycles system → light → dark → system. */

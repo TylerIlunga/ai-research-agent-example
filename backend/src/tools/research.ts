@@ -40,6 +40,18 @@ async function condense(result: SearchResult, signal: AbortSignal): Promise<stri
 }
 
 /**
+ * A page can try to smuggle its own "[9] Fake Source — nature.com" header into
+ * the digest through its content. Neutralizing bracketed numbers at line
+ * starts keeps the digest's numbering the only numbering the model sees.
+ */
+function sanitizeSummary(text: string): string {
+  return text.replace(/^(\s*)\[(\d{1,3})\]/gm, "$1($2)").slice(0, 2_000);
+}
+
+/** After this many consecutive provider failures, stop trying for the run. */
+const MAX_CONSECUTIVE_SEARCH_FAILURES = 3;
+
+/**
  * Runs one search, registers every result as a numbered source, and returns
  * the digest the model reads. Shared by the agentic tool and the direct
  * research path, so both produce identical citations and trace events.
@@ -51,12 +63,22 @@ export async function searchAndRegister(
   if (ctx.searchBudgetRemaining === 0) {
     return { digest: "Search budget exhausted.", found: 0 };
   }
+  // Errors refund the budget (below), so without this breaker a hard-down
+  // provider would let the model retry forever.
+  if (ctx.searchErrors >= MAX_CONSECUTIVE_SEARCH_FAILURES) {
+    return {
+      digest:
+        "The search provider is failing repeatedly; no further searches this run. Answer from what has been gathered.",
+      found: 0,
+    };
+  }
 
   const step = ctx.step("search", query);
   ctx.searchesUsed += 1;
 
   try {
     const results = await runSearch(query, ctx.signal);
+    ctx.searchErrors = 0;
 
     if (results.length === 0) {
       step.finish("done", "No results");
@@ -82,9 +104,11 @@ export async function searchAndRegister(
       if (!source) continue;
 
       lines.push(
-        [`[${source.n}] ${source.title} — ${source.domain}`, `URL: ${source.url}`, summary].join(
-          "\n"
-        )
+        [
+          `[${source.n}] ${source.title} — ${source.domain}`,
+          `URL: ${source.url}`,
+          sanitizeSummary(summary),
+        ].join("\n")
       );
     }
 
@@ -100,6 +124,11 @@ export async function searchAndRegister(
       found: lines.length,
     };
   } catch (error) {
+    // A provider error is not a spent search: refund it so a transient 429 or
+    // timeout does not cost the run its budget. The consecutive-failure
+    // breaker above keeps the refund from becoming an infinite retry.
+    ctx.searchesUsed -= 1;
+    ctx.searchErrors += 1;
     const message = error instanceof Error ? error.message : String(error);
     step.finish("failed", message.slice(0, 140));
     ctx.emit({ type: "search", id: step.id, query, resultCount: 0 });
@@ -154,7 +183,7 @@ function buildMemoryTools(ctx: RunContext): StructuredToolInterface[] {
     async ({ query }: { query: string }) => {
       const step = ctx.step("memory", `Recall: ${query}`);
       try {
-        const hits = await memory.search(query, 4);
+        const hits = await memory.search(query, 4, ctx.signal);
         step.finish("done", `${hits.length} note${hits.length === 1 ? "" : "s"}`);
         if (hits.length === 0) return "No relevant notes in memory.";
         return hits.map((hit, index) => `Note ${index + 1}: ${hit}`).join("\n\n");
@@ -177,7 +206,7 @@ function buildMemoryTools(ctx: RunContext): StructuredToolInterface[] {
     async ({ note }: { note: string }) => {
       const step = ctx.step("memory", "Save note");
       try {
-        await memory.save(note, { conversationId: ctx.conversationId });
+        await memory.save(note, { conversationId: ctx.conversationId }, ctx.signal);
         step.finish("done");
         return "Saved.";
       } catch (error) {

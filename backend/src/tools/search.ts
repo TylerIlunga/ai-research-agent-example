@@ -66,15 +66,30 @@ async function tavily(query: string, signal: AbortSignal): Promise<SearchResult[
     }));
 }
 
+/** Brave descriptions arrive with `<strong>` markup and HTML entities. */
+function stripHtml(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
 /**
  * Brave — an independent index (not a Google or Bing reseller), 2,000 free
  * queries a month. Snippets only, so sources are cited from the excerpt.
+ *
+ * `extra_snippets` is deliberately not requested: Brave rejects the parameter
+ * outright on plans that do not include the feature (the free tier among
+ * them), which would turn every search into a 4xx.
  */
 async function brave(query: string, signal: AbortSignal): Promise<SearchResult[]> {
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
   url.searchParams.set("q", query);
   url.searchParams.set("count", String(config.search.resultsPerSearch));
-  url.searchParams.set("extra_snippets", "true");
 
   const response = await fetch(url, {
     headers: {
@@ -100,12 +115,11 @@ async function brave(query: string, signal: AbortSignal): Promise<SearchResult[]
   return (payload.web?.results ?? [])
     .filter((item): item is { url: string } & typeof item => Boolean(item.url))
     .map((item) => ({
-      title: item.title ?? "",
+      title: stripHtml(item.title ?? ""),
       url: item.url,
-      snippet: [item.description, ...(item.extra_snippets ?? [])]
-        .filter(Boolean)
-        .join(" ")
-        .slice(0, 1_200),
+      snippet: stripHtml(
+        [item.description, ...(item.extra_snippets ?? [])].filter(Boolean).join(" ")
+      ).slice(0, 1_200),
     }));
 }
 

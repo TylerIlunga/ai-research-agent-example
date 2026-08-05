@@ -484,6 +484,7 @@ export function validateApiKeyMiddleware(req: Request, res: Response, next: Next
 }
 
 // Schedule automatic rotation checks (every hour)
-setInterval(ApiKeyManager.checkPendingRotations, 60 * 60 * 1000);
+// unref: a maintenance timer must not hold the process (or jest) open.
+setInterval(ApiKeyManager.checkPendingRotations, 60 * 60 * 1000).unref();
 
 export { ApiKeyData, FallbackKeyConfig };

@@ -20,6 +20,8 @@ export class RunContext {
   private readonly byUrl = new Map<string, Source>();
 
   searchesUsed = 0;
+  /** Consecutive provider failures — resets on any successful search. */
+  searchErrors = 0;
   inputTokens = 0;
   outputTokens = 0;
 
@@ -78,12 +80,16 @@ export class RunContext {
     const existing = this.byUrl.get(key);
     if (existing) return existing;
 
+    // Titles and snippets are web-controlled text that ends up in prompts and
+    // the UI. Collapsing them to a single line means a crafted page cannot
+    // smuggle its own "[9] Fake Source" header into the source digest.
+    const title = singleLine(input.title).slice(0, 180);
     const source: Source = {
       n: this.byUrl.size + 1,
       url: input.url,
-      title: input.title.trim() || domainOf(input.url) || input.url,
+      title: title || domainOf(input.url) || input.url,
       domain: domainOf(input.url),
-      snippet: input.snippet.trim().slice(0, 320),
+      snippet: singleLine(input.snippet).slice(0, 320),
       query: input.query,
     };
 
@@ -138,18 +144,32 @@ export class RunContext {
   }
 }
 
-/** Strips the noise that makes the same page look like two sources. */
+/** Collapses all whitespace (including newlines) to single spaces. */
+export function singleLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Strips the noise that makes the same page look like two sources.
+ *
+ * Only the host is case-folded: URL paths and query values are case-sensitive
+ * (YouTube video ids, wiki slugs), and lowercasing them would hand a second
+ * page the first page's citation number. `ref` is left alone for the same
+ * reason — GitHub and friends use it semantically, unlike `utm_*`.
+ */
 export function normalizeUrl(raw: string): string | null {
   try {
     const url = new URL(raw);
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
-      if (key.startsWith("utm_") || key === "ref" || key === "fbclid" || key === "gclid") {
+      if (key.startsWith("utm_") || key === "fbclid" || key === "gclid") {
         url.searchParams.delete(key);
       }
     }
     const path = url.pathname.replace(/\/+$/, "");
-    return `${url.hostname.replace(/^www\./, "")}${path}${url.search}`.toLowerCase();
+    // `host` keeps a non-default port; `hostname` would merge :8080 with :443.
+    const host = url.host.replace(/^www\./i, "").toLowerCase();
+    return `${host}${path}${url.search}`;
   } catch {
     return null;
   }
